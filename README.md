@@ -708,6 +708,14 @@ ipam-portal/
 
 ## Changelog
 
+### v1.2.0 — Bug Fixes
+
+- **Fix: create user 422 on blank email** — Leaving the Email field empty sent `""` which Pydantic's `EmailStr` rejected. A `field_validator` now converts blank strings to `None` on both `UserCreate` and `UserUpdate`; the frontend also strips empty email from the payload before sending.
+- **Fix: deactivate user 404** — The frontend called `POST /users/{id}/deactivate` but only `DELETE /users/{id}` existed. Added the missing `POST /{id}/deactivate` endpoint to match the existing `POST /{id}/activate` pattern.
+- **Feat: permanent user delete** — Administrators can now hard-delete a user account via a new red trash-icon button in the Users table. Safety guards prevent deleting your own account or the last active Administrator. A full audit log entry with before-snapshot is written on every deletion.
+
+---
+
 ### v1.1.0 — Security Hardening Release
 
 **Security fixes (backend)**
