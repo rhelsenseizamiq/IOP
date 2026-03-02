@@ -123,6 +123,20 @@ async def reset_user_password(
     )
 
 
+@router.post("/{id}/deactivate", status_code=status.HTTP_204_NO_CONTENT)
+async def deactivate_user_action(
+    id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
+    request: Request,
+    current_user: UserInToken = Depends(_ADMIN_ONLY),
+) -> None:
+    service = _build_service()
+    await service.deactivate(
+        id=id,
+        deactivated_by=current_user.sub,
+        client_ip=_get_client_ip(request),
+    )
+
+
 @router.post("/{id}/activate", response_model=UserResponse)
 async def activate_user(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
