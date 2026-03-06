@@ -8,6 +8,12 @@ export interface Subnet {
   gateway: string | null;
   vlan_id: number | null;
   environment: Environment;
+  parent_id: string | null;
+  vrf_id: string | null;
+  prefix_len: number;
+  depth: number;
+  is_container: boolean;
+  child_prefix_count: number;
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -21,6 +27,12 @@ export interface SubnetDetail extends Subnet {
   reserved_ips: number;
 }
 
+export interface SubnetTreeNode extends SubnetDetail {
+  children: SubnetTreeNode[];
+  key: string;
+  utilization_pct: number;
+}
+
 export interface SubnetCreate {
   cidr: string;
   name: string;
@@ -28,6 +40,8 @@ export interface SubnetCreate {
   gateway?: string;
   vlan_id?: number;
   environment: Environment;
+  parent_id?: string;
+  vrf_id?: string;
 }
 
 export interface SubnetUpdate {
@@ -36,4 +50,5 @@ export interface SubnetUpdate {
   gateway?: string;
   vlan_id?: number;
   environment?: Environment;
+  vrf_id?: string;
 }

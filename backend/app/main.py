@@ -58,12 +58,44 @@ async def _seed_default_admin() -> None:
         )
 
 
+_DEFAULT_RIRS = [
+    {"name": "ARIN", "slug": "arin", "description": "American Registry for Internet Numbers", "is_private": False},
+    {"name": "RIPE NCC", "slug": "ripe-ncc", "description": "Réseaux IP Européens Network Coordination Centre", "is_private": False},
+    {"name": "APNIC", "slug": "apnic", "description": "Asia-Pacific Network Information Centre", "is_private": False},
+    {"name": "LACNIC", "slug": "lacnic", "description": "Latin America and Caribbean Network Information Centre", "is_private": False},
+    {"name": "AFRINIC", "slug": "afrinic", "description": "African Network Information Centre", "is_private": False},
+    {"name": "RFC1918", "slug": "rfc1918", "description": "Private address space (RFC 1918)", "is_private": True},
+]
+
+
+async def _seed_default_rirs() -> None:
+    """Creates default RIR records if they do not already exist."""
+    db = get_database()
+    now = datetime.now(timezone.utc)
+    for rir_data in _DEFAULT_RIRS:
+        await db["rirs"].update_one(
+            {"slug": rir_data["slug"]},
+            {
+                "$setOnInsert": {
+                    **rir_data,
+                    "created_at": now,
+                    "updated_at": now,
+                    "created_by": "system",
+                    "updated_by": "system",
+                }
+            },
+            upsert=True,
+        )
+    logger.info("RIR seed complete (%d records)", len(_DEFAULT_RIRS))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     logger.info("Starting IPAM Portal API")
     await connect_to_mongo()
     await _seed_default_admin()
+    await _seed_default_rirs()
     yield
     logger.info("Shutting down IPAM Portal API")
     await close_mongo_connection()
@@ -100,6 +132,7 @@ def create_app() -> FastAPI:
 
     # Include routers
     from app.routers import auth, users, ip_records, subnets, audit_logs, scan
+    from app.routers import vrfs, rirs, aggregates, ip_ranges
 
     api_prefix = "/api/v1"
     app.include_router(auth.router, prefix=api_prefix)
@@ -108,6 +141,10 @@ def create_app() -> FastAPI:
     app.include_router(subnets.router, prefix=api_prefix)
     app.include_router(audit_logs.router, prefix=api_prefix)
     app.include_router(scan.router, prefix=api_prefix)
+    app.include_router(vrfs.router, prefix=api_prefix)
+    app.include_router(rirs.router, prefix=api_prefix)
+    app.include_router(aggregates.router, prefix=api_prefix)
+    app.include_router(ip_ranges.router, prefix=api_prefix)
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict:

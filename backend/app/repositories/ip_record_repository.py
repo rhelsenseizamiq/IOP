@@ -13,6 +13,13 @@ class IPRecordRepository(BaseRepository[IPRecord]):
         doc = await self._col.find_one({"ip_address": ip_address})
         return self._doc_to_model(doc) if doc else None
 
+    async def find_by_ip_and_vrf(
+        self, ip_address: str, vrf_id: Optional[str]
+    ) -> Optional[IPRecord]:
+        """VRF-scoped IP lookup (vrf_id=None means global scope)."""
+        doc = await self._col.find_one({"ip_address": ip_address, "vrf_id": vrf_id})
+        return self._doc_to_model(doc) if doc else None
+
     async def find_by_subnet(
         self,
         subnet_id: str,

@@ -15,6 +15,7 @@ from app.models.user import UserInToken
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.ip_record_repository import IPRecordRepository
 from app.repositories.subnet_repository import SubnetRepository
+from app.repositories.vrf_repository import VRFRepository
 from app.schemas.audit_log import PaginatedResponse
 from app.schemas.ip_record import IPRecordCreate, IPRecordResponse, IPRecordUpdate
 from app.services.ip_record_service import IPRecordService
@@ -51,6 +52,7 @@ def _build_service(db=None) -> IPRecordService:
         ip_repo=IPRecordRepository(db["ip_records"]),
         subnet_repo=SubnetRepository(db["subnets"]),
         audit_repo=AuditLogRepository(db["audit_logs"]),
+        vrf_repo=VRFRepository(db["vrfs"]),
     )
 
 

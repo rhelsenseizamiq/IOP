@@ -26,19 +26,25 @@ print("✓ users indexes created");
 
 // ── subnets collection ────────────────────────────────────────────────────────
 db.createCollection("subnets");
-db.subnets.createIndex({ cidr: 1 }, { unique: true });
+// VRF-scoped CIDR uniqueness (null vrf_id = global; two nulls with same cidr = conflict)
+db.subnets.createIndex({ vrf_id: 1, cidr: 1 }, { unique: true });
 db.subnets.createIndex({ environment: 1 });
+db.subnets.createIndex({ parent_id: 1 });
+db.subnets.createIndex({ prefix_len: 1 });
+db.subnets.createIndex({ vrf_id: 1 });
 
 print("✓ subnets indexes created");
 
 // ── ip_records collection ─────────────────────────────────────────────────────
 db.createCollection("ip_records");
-db.ip_records.createIndex({ ip_address: 1 }, { unique: true });
+// VRF-scoped IP uniqueness (null vrf_id = global)
+db.ip_records.createIndex({ vrf_id: 1, ip_address: 1 }, { unique: true });
 db.ip_records.createIndex({ subnet_id: 1 });
 db.ip_records.createIndex({ status: 1 });
 db.ip_records.createIndex({ environment: 1 });
 db.ip_records.createIndex({ os_type: 1 });
 db.ip_records.createIndex({ status: 1, environment: 1 });
+db.ip_records.createIndex({ vrf_id: 1 });
 db.ip_records.createIndex({ hostname: "text", description: "text", owner: "text" });
 
 print("✓ ip_records indexes created");
@@ -61,6 +67,35 @@ db.token_blocklist.createIndex({ jti: 1 }, { unique: true });
 db.token_blocklist.createIndex({ exp: 1 }, { expireAfterSeconds: 0 });
 
 print("✓ token_blocklist indexes created");
+
+// ── vrfs collection ───────────────────────────────────────────────────────────
+db.createCollection("vrfs");
+db.vrfs.createIndex({ name: 1 }, { unique: true });
+
+print("✓ vrfs indexes created");
+
+// ── rirs collection ───────────────────────────────────────────────────────────
+db.createCollection("rirs");
+db.rirs.createIndex({ name: 1 }, { unique: true });
+db.rirs.createIndex({ slug: 1 }, { unique: true });
+
+print("✓ rirs indexes created");
+
+// ── aggregates collection ─────────────────────────────────────────────────────
+db.createCollection("aggregates");
+db.aggregates.createIndex({ prefix: 1 }, { unique: true });
+db.aggregates.createIndex({ rir_id: 1 });
+db.aggregates.createIndex({ prefix_len: 1 });
+
+print("✓ aggregates indexes created");
+
+// ── ip_ranges collection ──────────────────────────────────────────────────────
+db.createCollection("ip_ranges");
+db.ip_ranges.createIndex({ subnet_id: 1 });
+db.ip_ranges.createIndex({ subnet_id: 1, start_int: 1, end_int: 1 });
+db.ip_ranges.createIndex({ vrf_id: 1 });
+
+print("✓ ip_ranges indexes created");
 
 print("─────────────────────────────────────────");
 print("MongoDB initialization complete.");

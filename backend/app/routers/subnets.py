@@ -12,8 +12,9 @@ from app.models.user import UserInToken
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.ip_record_repository import IPRecordRepository
 from app.repositories.subnet_repository import SubnetRepository
+from app.repositories.vrf_repository import VRFRepository
 from app.schemas.audit_log import PaginatedResponse
-from app.schemas.subnet import SubnetCreate, SubnetDetailResponse, SubnetResponse, SubnetUpdate
+from app.schemas.subnet import SubnetCreate, SubnetDetailResponse, SubnetResponse, SubnetTreeNode, SubnetUpdate
 from app.services.subnet_service import SubnetService
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,19 @@ def _build_service(db=None) -> SubnetService:
         subnet_repo=SubnetRepository(db["subnets"]),
         ip_repo=IPRecordRepository(db["ip_records"]),
         audit_repo=AuditLogRepository(db["audit_logs"]),
+        vrf_repo=VRFRepository(db["vrfs"]),
     )
+
+
+@router.get("/tree", response_model=list[SubnetTreeNode])
+async def get_subnet_tree(
+    request: Request,
+    vrf_id: Optional[str] = Query(None, description="Filter by VRF ID (None = global)"),
+    environment: Optional[Environment] = Query(None),
+    current_user: UserInToken = Depends(_VIEWER_PLUS),
+) -> list[SubnetTreeNode]:
+    service = _build_service()
+    return await service.build_tree(vrf_id=vrf_id, environment=environment)
 
 
 @router.get("", response_model=PaginatedResponse[SubnetDetailResponse])

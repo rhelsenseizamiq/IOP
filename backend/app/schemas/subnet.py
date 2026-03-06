@@ -13,6 +13,8 @@ class SubnetCreate(BaseModel):
     gateway: Optional[str] = Field(None, description="Gateway IPv4 address within the subnet")
     vlan_id: Optional[int] = Field(None, ge=1, le=4094)
     environment: Environment
+    parent_id: Optional[str] = None
+    vrf_id: Optional[str] = None
 
     @field_validator("cidr")
     @classmethod
@@ -40,6 +42,7 @@ class SubnetUpdate(BaseModel):
     gateway: Optional[str] = None
     vlan_id: Optional[int] = Field(None, ge=1, le=4094)
     environment: Optional[Environment] = None
+    vrf_id: Optional[str] = None
 
     @field_validator("gateway")
     @classmethod
@@ -60,6 +63,12 @@ class SubnetResponse(BaseModel):
     gateway: Optional[str]
     vlan_id: Optional[int]
     environment: Environment
+    parent_id: Optional[str] = None
+    vrf_id: Optional[str] = None
+    prefix_len: int = 0
+    depth: int = 0
+    is_container: bool = False
+    child_prefix_count: int = 0
     created_at: datetime
     updated_at: datetime
     created_by: str
@@ -71,3 +80,12 @@ class SubnetDetailResponse(SubnetResponse):
     used_ips: int
     free_ips: int
     reserved_ips: int
+
+
+class SubnetTreeNode(SubnetDetailResponse):
+    children: list["SubnetTreeNode"] = Field(default_factory=list)
+    key: str = ""
+    utilization_pct: float = 0.0
+
+
+SubnetTreeNode.model_rebuild()

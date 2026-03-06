@@ -12,9 +12,6 @@ import {
   Col,
   message,
   Popconfirm,
-  Popover,
-  List,
-  Spin,
   Typography,
   Progress,
   Tag,
@@ -25,14 +22,16 @@ import {
   EditOutlined,
   DeleteOutlined,
   ReloadOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
-import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import type { ColumnsType } from 'antd/es/table';
 import { subnetsApi } from '../../api/subnets';
-import { ipRecordsApi } from '../../api/ipRecords';
+import { vrfsApi } from '../../api/vrfs';
 import { useAuth } from '../../context/AuthContext';
-import StatusBadge from '../../components/common/StatusBadge';
-import type { SubnetDetail, SubnetCreate, SubnetUpdate } from '../../types/subnet';
-import type { Environment, IPRecord } from '../../types/ipRecord';
+import type { SubnetCreate, SubnetDetail, SubnetTreeNode, SubnetUpdate } from '../../types/subnet';
+import type { Environment } from '../../types/ipRecord';
+import type { VRF } from '../../types/vrf';
+import SubnetDetailDrawer from './SubnetDetailDrawer';
 
 const ENV_OPTIONS: Environment[] = ['Production', 'Test', 'Development'];
 
@@ -42,81 +41,52 @@ const ENV_COLOR: Record<Environment, string> = {
   Development: 'cyan',
 };
 
-const PAGE_SIZE = 20;
-
-const SubnetIPList: React.FC<{ subnetId: string }> = ({ subnetId }) => {
-  const [ips, setIps] = useState<IPRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    ipRecordsApi
-      .list({ subnet_id: subnetId, page_size: 100 })
-      .then((res) => setIps(res.data.items))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [subnetId]);
-
-  if (loading) return <Spin size="small" />;
-  if (!ips.length)
-    return <Typography.Text type="secondary">No IP records assigned</Typography.Text>;
-
-  return (
-    <List<IPRecord>
-      size="small"
-      dataSource={ips}
-      style={{ maxHeight: 300, overflowY: 'auto', minWidth: 260 }}
-      renderItem={(ip) => (
-        <List.Item style={{ padding: '3px 0', gap: 8, display: 'flex', alignItems: 'center' }}>
-          <Typography.Text code style={{ minWidth: 110 }}>
-            {ip.ip_address}
-          </Typography.Text>
-          <StatusBadge status={ip.status} />
-          {ip.hostname && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {ip.hostname}
-            </Typography.Text>
-          )}
-        </List.Item>
-      )}
-    />
-  );
-};
-
 const SubnetsPage: React.FC = () => {
   const { hasRole } = useAuth();
-  const [subnets, setSubnets] = useState<SubnetDetail[]>([]);
-  const [total, setTotal] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [tree, setTree] = useState<SubnetTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
+  const [vrfs, setVrfs] = useState<VRF[]>([]);
+  const [filterVrf, setFilterVrf] = useState<string | undefined>(undefined);
+  const [filterEnv, setFilterEnv] = useState<Environment | undefined>(undefined);
 
+  const [drawerSubnet, setDrawerSubnet] = useState<SubnetDetail | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingSubnet, setEditingSubnet] = useState<SubnetDetail | null>(null);
+  const [editingSubnet, setEditingSubnet] = useState<SubnetTreeNode | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm<SubnetCreate & SubnetUpdate>();
 
-  const fetchSubnets = useCallback(async (page: number): Promise<void> => {
+  const fetchTree = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
-      const res = await subnetsApi.list({ page, page_size: PAGE_SIZE });
-      setSubnets(res.data.items);
-      setTotal(res.data.total);
+      const params: { vrf_id?: string; environment?: string } = {};
+      if (filterVrf) params.vrf_id = filterVrf;
+      if (filterEnv) params.environment = filterEnv;
+      const res = await subnetsApi.tree(params);
+      setTree(res.data);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      message.error(
-        axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Failed to load subnets'
-      );
+      message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Failed to load subnets');
     } finally {
       setLoading(false);
+    }
+  }, [filterVrf, filterEnv]);
+
+  const fetchVrfs = useCallback(async (): Promise<void> => {
+    try {
+      const res = await vrfsApi.list({ page_size: 200 });
+      setVrfs(res.data.items);
+    } catch {
+      // Non-critical
     }
   }, []);
 
   useEffect(() => {
-    void fetchSubnets(currentPage);
-  }, [fetchSubnets, currentPage]);
+    void fetchVrfs();
+  }, [fetchVrfs]);
 
-  const handleTableChange = useCallback((pagination: TablePaginationConfig): void => {
-    setCurrentPage(pagination.current ?? 1);
-  }, []);
+  useEffect(() => {
+    void fetchTree();
+  }, [fetchTree]);
 
   const openCreate = useCallback((): void => {
     setEditingSubnet(null);
@@ -125,7 +95,7 @@ const SubnetsPage: React.FC = () => {
   }, [form]);
 
   const openEdit = useCallback(
-    (subnet: SubnetDetail): void => {
+    (subnet: SubnetTreeNode): void => {
       setEditingSubnet(subnet);
       form.setFieldsValue({
         cidr: subnet.cidr,
@@ -134,6 +104,7 @@ const SubnetsPage: React.FC = () => {
         gateway: subnet.gateway ?? undefined,
         vlan_id: subnet.vlan_id ?? undefined,
         environment: subnet.environment,
+        vrf_id: subnet.vrf_id ?? undefined,
       });
       setModalOpen(true);
     },
@@ -151,6 +122,7 @@ const SubnetsPage: React.FC = () => {
             gateway: values.gateway,
             vlan_id: values.vlan_id,
             environment: values.environment,
+            vrf_id: values.vrf_id,
           };
           await subnetsApi.update(editingSubnet.id, update);
           message.success('Subnet updated');
@@ -162,23 +134,22 @@ const SubnetsPage: React.FC = () => {
             gateway: values.gateway,
             vlan_id: values.vlan_id,
             environment: values.environment!,
+            vrf_id: values.vrf_id,
           };
           await subnetsApi.create(create);
           message.success('Subnet created');
         }
         setModalOpen(false);
         form.resetFields();
-        void fetchSubnets(currentPage);
+        void fetchTree();
       } catch (err: unknown) {
         const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(
-          axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Operation failed'
-        );
+        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Operation failed');
       } finally {
         setSubmitting(false);
       }
     },
-    [editingSubnet, currentPage, fetchSubnets, form]
+    [editingSubnet, fetchTree, form]
   );
 
   const handleDelete = useCallback(
@@ -186,49 +157,48 @@ const SubnetsPage: React.FC = () => {
       try {
         await subnetsApi.delete(id);
         message.success('Subnet deleted');
-        void fetchSubnets(currentPage);
+        void fetchTree();
       } catch (err: unknown) {
         const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(
-          axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Delete failed'
-        );
+        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Delete failed');
       }
     },
-    [currentPage, fetchSubnets]
+    [fetchTree]
   );
 
-  const columns: ColumnsType<SubnetDetail> = [
+  const columns: ColumnsType<SubnetTreeNode> = [
     {
       title: 'CIDR',
       dataIndex: 'cidr',
       key: 'cidr',
-      width: 160,
-      render: (v: string, record: SubnetDetail) => (
-        <Popover
-          title={`Assigned IPs — ${v}`}
-          content={<SubnetIPList subnetId={record.id} />}
-          trigger="click"
-          placement="right"
+      width: 180,
+      render: (v: string, record: SubnetTreeNode) => (
+        <Typography.Text
+          code
+          style={{ cursor: 'pointer', color: '#1677ff' }}
+          onClick={() => setDrawerSubnet(record)}
         >
-          <Typography.Text
-            code
-            style={{ cursor: 'pointer', color: '#1677ff' }}
-          >
-            {v}
-          </Typography.Text>
-        </Popover>
+          {v}
+        </Typography.Text>
       ),
     },
     {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      render: (v: string, record: SubnetDetail) =>
-        record.description ? (
-          <Tooltip title={record.description}>{v}</Tooltip>
-        ) : (
-          v
-        ),
+      render: (v: string, record: SubnetTreeNode) =>
+        record.description ? <Tooltip title={record.description}>{v}</Tooltip> : v,
+    },
+    {
+      title: 'VRF',
+      dataIndex: 'vrf_id',
+      key: 'vrf_id',
+      width: 120,
+      render: (v: string | null) => {
+        if (!v) return <Typography.Text type="secondary">Global</Typography.Text>;
+        const vrf = vrfs.find((x) => x.id === v);
+        return vrf ? <Tag>{vrf.name}</Tag> : <Tag>{v.slice(0, 8)}…</Tag>;
+      },
     },
     {
       title: 'Environment',
@@ -241,13 +211,9 @@ const SubnetsPage: React.FC = () => {
       title: 'VLAN',
       dataIndex: 'vlan_id',
       key: 'vlan_id',
-      width: 80,
+      width: 72,
       render: (v: number | null) =>
-        v != null ? (
-          v
-        ) : (
-          <Typography.Text type="secondary">—</Typography.Text>
-        ),
+        v != null ? v : <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
       title: 'Gateway',
@@ -264,14 +230,13 @@ const SubnetsPage: React.FC = () => {
     {
       title: 'Utilization',
       key: 'utilization',
-      width: 240,
+      width: 220,
       render: (_, record) => {
-        const pct =
-          record.total_ips > 0
-            ? Math.round((record.used_ips / record.total_ips) * 100)
-            : 0;
-        const strokeColor =
-          pct >= 90 ? '#ff4d4f' : pct >= 70 ? '#faad14' : '#52c41a';
+        const pct = record.utilization_pct;
+        const strokeColor = pct >= 90 ? '#ff4d4f' : pct >= 70 ? '#faad14' : '#52c41a';
+        const label = record.is_container
+          ? `${record.used_ips.toLocaleString()} / ${record.total_ips.toLocaleString()} IPs allocated`
+          : `${record.used_ips} / ${record.total_ips} in use`;
         return (
           <div>
             <div
@@ -282,51 +247,63 @@ const SubnetsPage: React.FC = () => {
                 fontSize: 12,
               }}
             >
-              <Typography.Text type="secondary">
-                {record.used_ips} / {record.total_ips}
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                {record.is_container ? (
+                  <>
+                    <RightOutlined style={{ fontSize: 9, marginRight: 2 }} />
+                    {record.child_prefix_count} child prefix{record.child_prefix_count !== 1 ? 'es' : ''}
+                  </>
+                ) : (
+                  label
+                )}
               </Typography.Text>
-              <Typography.Text style={{ color: strokeColor }}>{pct}%</Typography.Text>
+              <Typography.Text style={{ color: strokeColor, fontSize: 11 }}>{pct}%</Typography.Text>
             </div>
-            <Progress
-              percent={pct}
-              showInfo={false}
-              strokeColor={strokeColor}
-              size="small"
-            />
+            <Progress percent={pct} showInfo={false} strokeColor={strokeColor} size="small" />
           </div>
         );
       },
     },
-    ...(hasRole('Administrator')
+    ...(hasRole('Operator')
       ? ([
           {
             title: 'Actions',
             key: 'actions',
             width: 100,
-            render: (_: unknown, record: SubnetDetail) => (
+            render: (_: unknown, record: SubnetTreeNode) => (
               <Space size={4}>
                 <Tooltip title="Edit">
-                  <Button
-                    size="small"
-                    icon={<EditOutlined />}
-                    onClick={() => openEdit(record)}
-                  />
+                  <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
                 </Tooltip>
-                <Popconfirm
-                  title="Delete this subnet?"
-                  description="This will only succeed if no IP records are assigned."
-                  onConfirm={() => void handleDelete(record.id)}
-                  okText="Delete"
-                  okButtonProps={{ danger: true }}
-                >
-                  <Tooltip title="Delete">
-                    <Button size="small" icon={<DeleteOutlined />} danger />
-                  </Tooltip>
-                </Popconfirm>
+                {hasRole('Administrator') && (
+                  <Popconfirm
+                    title="Delete this subnet?"
+                    description={
+                      record.is_container
+                        ? 'This subnet has children — delete them first.'
+                        : 'This will only succeed if no IP records are assigned.'
+                    }
+                    onConfirm={() => void handleDelete(record.id)}
+                    okText="Delete"
+                    okButtonProps={{ danger: true }}
+                    disabled={record.is_container}
+                  >
+                    <Tooltip
+                      title={record.is_container ? 'Delete children first' : 'Delete'}
+                    >
+                      <Button
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        danger
+                        disabled={record.is_container}
+                      />
+                    </Tooltip>
+                  </Popconfirm>
+                )}
               </Space>
             ),
           },
-        ] as ColumnsType<SubnetDetail>)
+        ] as ColumnsType<SubnetTreeNode>)
       : []),
   ];
 
@@ -338,20 +315,37 @@ const SubnetsPage: React.FC = () => {
           justifyContent: 'space-between',
           alignItems: 'center',
           marginBottom: 16,
+          flexWrap: 'wrap',
+          gap: 8,
         }}
       >
         <Typography.Title level={4} style={{ margin: 0 }}>
           Subnets
         </Typography.Title>
-        <Space>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => void fetchSubnets(currentPage)}
-            loading={loading}
-          >
+        <Space wrap>
+          <Select
+            placeholder="All VRFs"
+            allowClear
+            style={{ width: 160 }}
+            value={filterVrf}
+            onChange={(v) => setFilterVrf(v)}
+            options={[
+              { value: '', label: 'Global (no VRF)' },
+              ...vrfs.map((v) => ({ value: v.id, label: v.name })),
+            ]}
+          />
+          <Select
+            placeholder="All Environments"
+            allowClear
+            style={{ width: 160 }}
+            value={filterEnv}
+            onChange={(v) => setFilterEnv(v as Environment | undefined)}
+            options={ENV_OPTIONS.map((e) => ({ value: e, label: e }))}
+          />
+          <Button icon={<ReloadOutlined />} onClick={() => void fetchTree()} loading={loading}>
             Refresh
           </Button>
-          {hasRole('Administrator') && (
+          {hasRole('Operator') && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               Create Subnet
             </Button>
@@ -359,55 +353,24 @@ const SubnetsPage: React.FC = () => {
         </Space>
       </div>
 
-      <Table<SubnetDetail>
-        dataSource={subnets}
+      <Table<SubnetTreeNode>
+        dataSource={tree}
         columns={columns}
         rowKey="id"
         loading={loading}
-        scroll={{ x: 900 }}
-        pagination={{
-          current: currentPage,
-          pageSize: PAGE_SIZE,
-          total,
-          showSizeChanger: false,
-          showTotal: (t) => `${t} subnets`,
-        }}
-        onChange={handleTableChange}
+        scroll={{ x: 1000 }}
+        pagination={false}
         size="small"
-        expandable={{
-          expandedRowRender: (record) => (
-            <div style={{ padding: '8px 0' }}>
-              <Space size={24}>
-                <span>
-                  <Typography.Text type="secondary">Free: </Typography.Text>
-                  <Typography.Text style={{ color: '#52c41a' }}>
-                    {record.free_ips}
-                  </Typography.Text>
-                </span>
-                <span>
-                  <Typography.Text type="secondary">Reserved: </Typography.Text>
-                  <Typography.Text style={{ color: '#fa8c16' }}>
-                    {record.reserved_ips}
-                  </Typography.Text>
-                </span>
-                <span>
-                  <Typography.Text type="secondary">In Use: </Typography.Text>
-                  <Typography.Text style={{ color: '#1677ff' }}>
-                    {record.used_ips}
-                  </Typography.Text>
-                </span>
-                {record.description && (
-                  <span>
-                    <Typography.Text type="secondary">Description: </Typography.Text>
-                    <Typography.Text>{record.description}</Typography.Text>
-                  </span>
-                )}
-              </Space>
-            </div>
-          ),
-        }}
+        expandable={{ childrenColumnName: 'children', defaultExpandAllRows: false }}
       />
 
+      {/* Subnet Detail Drawer */}
+      <SubnetDetailDrawer
+        subnet={drawerSubnet}
+        onClose={() => setDrawerSubnet(null)}
+      />
+
+      {/* Create / Edit Modal */}
       <Modal
         title={editingSubnet ? 'Edit Subnet' : 'Create Subnet'}
         open={modalOpen}
@@ -454,29 +417,30 @@ const SubnetsPage: React.FC = () => {
             name="environment"
             rules={[{ required: true, message: 'Environment is required' }]}
           >
-            <Select>
-              {ENV_OPTIONS.map((e) => (
-                <Select.Option key={e} value={e}>
-                  {e}
-                </Select.Option>
-              ))}
-            </Select>
+            <Select options={ENV_OPTIONS.map((e) => ({ value: e, label: e }))} />
           </Form.Item>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="VRF" name="vrf_id">
+                <Select
+                  placeholder="Global (no VRF)"
+                  allowClear
+                  options={vrfs.map((v) => ({ value: v.id, label: v.name }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="VLAN ID" name="vlan_id">
+                <InputNumber min={1} max={4094} style={{ width: '100%' }} placeholder="100" />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item label="Gateway" name="gateway">
                 <Input placeholder="192.168.1.1" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item label="VLAN ID" name="vlan_id">
-                <InputNumber
-                  min={1}
-                  max={4094}
-                  style={{ width: '100%' }}
-                  placeholder="100"
-                />
               </Form.Item>
             </Col>
           </Row>

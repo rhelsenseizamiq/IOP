@@ -11,6 +11,7 @@ from app.models.subnet import Subnet
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.ip_record_repository import IPRecordRepository
 from app.repositories.subnet_repository import SubnetRepository
+from app.repositories.vrf_repository import VRFRepository
 from app.schemas.ip_record import IPRecordCreate, IPRecordResponse, IPRecordUpdate
 
 logger = logging.getLogger(__name__)
@@ -56,10 +57,12 @@ class IPRecordService:
         ip_repo: IPRecordRepository,
         subnet_repo: SubnetRepository,
         audit_repo: AuditLogRepository,
+        vrf_repo: Optional[VRFRepository] = None,
     ) -> None:
         self._ips = ip_repo
         self._subnets = subnet_repo
         self._audit = audit_repo
+        self._vrfs = vrf_repo
 
     async def create(
         self,
@@ -85,13 +88,21 @@ class IPRecordService:
                 detail=f"IP address {data.ip_address} is not within subnet {subnet.cidr}",
             )
 
-        # Validate no duplicate IP
-        existing = await self._ips.find_by_ip(data.ip_address)
-        if existing is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"IP address {data.ip_address} already exists",
-            )
+        # VRF-scoped uniqueness check
+        vrf_id = subnet.vrf_id
+        enforce_unique = True
+        if vrf_id and self._vrfs:
+            vrf = await self._vrfs.find_by_id(vrf_id)
+            if vrf is not None:
+                enforce_unique = vrf.enforce_unique
+
+        if enforce_unique:
+            existing = await self._ips.find_by_ip_and_vrf(data.ip_address, vrf_id)
+            if existing is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"IP address {data.ip_address} already exists in this VRF",
+                )
 
         now = datetime.now(timezone.utc)
         doc = {
@@ -99,6 +110,7 @@ class IPRecordService:
             "hostname": data.hostname,
             "os_type": data.os_type.value,
             "subnet_id": data.subnet_id,
+            "vrf_id": vrf_id,
             "status": data.status.value,
             "environment": data.environment.value,
             "owner": data.owner,

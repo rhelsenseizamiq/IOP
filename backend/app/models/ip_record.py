@@ -33,6 +33,7 @@ class IPRecord(BaseModel):
     hostname: Optional[str] = None
     os_type: OSType
     subnet_id: str
+    vrf_id: Optional[str] = None
     status: IPStatus = IPStatus.FREE
     environment: Environment
     owner: Optional[str] = None

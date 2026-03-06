@@ -21,6 +21,10 @@ class ResourceType(str, Enum):
     SUBNET = "subnet"
     USER = "user"
     AUTH = "auth"
+    VRF = "vrf"
+    RIR = "rir"
+    AGGREGATE = "aggregate"
+    IP_RANGE = "ip_range"
 
 
 class AuditLog(BaseModel):

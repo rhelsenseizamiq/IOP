@@ -11,6 +11,8 @@ import SubnetsPage from './pages/Subnets/SubnetsPage';
 import NetworkScanPage from './pages/NetworkScan/NetworkScanPage';
 import UsersPage from './pages/Users/UsersPage';
 import AuditLogPage from './pages/AuditLog/AuditLogPage';
+import VRFsPage from './pages/VRFs/VRFsPage';
+import AggregatesPage from './pages/Aggregates/AggregatesPage';
 
 const UnauthorizedPage: React.FC = () => (
   <div
@@ -82,6 +84,28 @@ const App: React.FC = () => (
               <ProtectedRoute requiredRole="Viewer">
                 <AppLayout>
                   <SubnetsPage />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/vrfs"
+            element={
+              <ProtectedRoute requiredRole="Viewer">
+                <AppLayout>
+                  <VRFsPage />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/aggregates"
+            element={
+              <ProtectedRoute requiredRole="Operator">
+                <AppLayout>
+                  <AggregatesPage />
                 </AppLayout>
               </ProtectedRoute>
             }
