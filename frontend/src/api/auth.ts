@@ -24,4 +24,6 @@ export const authApi = {
 
   changePassword: (payload: ChangePasswordPayload) =>
     apiClient.post<void>('/auth/change-password', payload),
+
+  config: () => apiClient.get<{ ldap_enabled: boolean }>('/auth/config'),
 };

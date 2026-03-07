@@ -13,6 +13,7 @@ import UsersPage from './pages/Users/UsersPage';
 import AuditLogPage from './pages/AuditLog/AuditLogPage';
 import VRFsPage from './pages/VRFs/VRFsPage';
 import AggregatesPage from './pages/Aggregates/AggregatesPage';
+import IntegrationsPage from './pages/Integrations/IntegrationsPage';
 
 const UnauthorizedPage: React.FC = () => (
   <div
@@ -117,6 +118,17 @@ const App: React.FC = () => (
               <ProtectedRoute requiredRole="Operator">
                 <AppLayout>
                   <NetworkScanPage />
+                </AppLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/integrations"
+            element={
+              <ProtectedRoute requiredRole="Operator">
+                <AppLayout>
+                  <IntegrationsPage />
                 </AppLayout>
               </ProtectedRoute>
             }

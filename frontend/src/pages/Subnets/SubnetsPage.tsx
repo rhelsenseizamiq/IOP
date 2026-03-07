@@ -16,6 +16,7 @@ import {
   Progress,
   Tag,
   Tooltip,
+  Radio,
 } from 'antd';
 import {
   PlusOutlined,
@@ -107,6 +108,7 @@ const SubnetsPage: React.FC = () => {
         environment: subnet.environment,
         vrf_id: subnet.vrf_id ?? undefined,
         alert_threshold: subnet.alert_threshold ?? undefined,
+        ip_version: subnet.ip_version ?? 4,
       });
       setModalOpen(true);
     },
@@ -139,6 +141,7 @@ const SubnetsPage: React.FC = () => {
             environment: values.environment!,
             vrf_id: values.vrf_id,
             alert_threshold: values.alert_threshold,
+            ip_version: values.ip_version ?? 4,
           };
           await subnetsApi.create(create);
           message.success('Subnet created');
@@ -175,12 +178,13 @@ const SubnetsPage: React.FC = () => {
       title: 'CIDR',
       dataIndex: 'cidr',
       key: 'cidr',
-      width: 180,
+      width: 220,
       render: (v: string, record: SubnetTreeNode) => {
         const overThreshold =
           record.alert_threshold !== null &&
           record.alert_threshold !== undefined &&
           record.utilization_pct >= record.alert_threshold;
+        const ipv = record.ip_version ?? 4;
         return (
           <span>
             {overThreshold && (
@@ -188,6 +192,12 @@ const SubnetsPage: React.FC = () => {
                 <WarningOutlined style={{ color: '#ff4d4f', marginRight: 4 }} />
               </Tooltip>
             )}
+            <Tag
+              color={ipv === 6 ? 'purple' : 'blue'}
+              style={{ fontSize: 10, padding: '0 4px', marginRight: 4 }}
+            >
+              IPv{ipv}
+            </Tag>
             <Typography.Text
               code
               style={{ cursor: 'pointer', color: '#1677ff' }}
@@ -411,18 +421,30 @@ const SubnetsPage: React.FC = () => {
           onFinish={(values) => void handleSubmit(values)}
           style={{ marginTop: 16 }}
         >
+          <Form.Item label="IP Version" name="ip_version" initialValue={4}>
+            <Radio.Group disabled={!!editingSubnet} buttonStyle="solid">
+              <Radio.Button value={4}>IPv4</Radio.Button>
+              <Radio.Button value={6}>IPv6</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+
           <Form.Item
             label="CIDR"
             name="cidr"
             rules={[
               { required: true, message: 'CIDR is required' },
               {
-                pattern: /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/,
-                message: 'Enter a valid CIDR (e.g. 192.168.1.0/24)',
+                validator: (_, value) => {
+                  if (!value) return Promise.resolve();
+                  const ipv4Re = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
+                  const ipv6Re = /^[0-9a-fA-F:]+\/\d{1,3}$/;
+                  if (ipv4Re.test(value) || ipv6Re.test(value)) return Promise.resolve();
+                  return Promise.reject(new Error('Enter a valid CIDR (e.g. 192.168.1.0/24 or 2001:db8::/48)'));
+                },
               },
             ]}
           >
-            <Input placeholder="192.168.1.0/24" disabled={!!editingSubnet} />
+            <Input placeholder="192.168.1.0/24 or 2001:db8::/48" disabled={!!editingSubnet} />
           </Form.Item>
 
           <Form.Item

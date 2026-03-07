@@ -10,6 +10,7 @@ import {
   AuditOutlined,
   ClusterOutlined,
   DatabaseOutlined,
+  ApiOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -32,6 +33,7 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
     if (path.startsWith('/vrfs')) return '/vrfs';
     if (path.startsWith('/aggregates')) return '/aggregates';
     if (path.startsWith('/network-scan')) return '/network-scan';
+    if (path.startsWith('/integrations')) return '/integrations';
     if (path.startsWith('/users')) return '/users';
     if (path.startsWith('/audit-log')) return '/audit-log';
     return '/dashboard';
@@ -74,11 +76,18 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
     ];
 
     if (hasRole('Operator')) {
-      items.push({
-        key: '/network-scan',
-        icon: <ScanOutlined />,
-        label: 'Network Scan',
-      });
+      items.push(
+        {
+          key: '/network-scan',
+          icon: <ScanOutlined />,
+          label: 'Network Scan',
+        },
+        {
+          key: '/integrations',
+          icon: <ApiOutlined />,
+          label: 'Integrations',
+        }
+      );
     }
 
     if (hasRole('Administrator')) {

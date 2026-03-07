@@ -20,6 +20,17 @@ class Settings(BaseSettings):
     RATE_LIMIT_LOGIN: str = "5/minute"
     RATE_LIMIT_API: str = "200/minute"
 
+    # LDAP / Active Directory (optional)
+    LDAP_ENABLED: bool = False
+    LDAP_SERVER: str = "ldap://ldap.example.com"
+    LDAP_PORT: int = 389
+    LDAP_USE_TLS: bool = False
+    LDAP_BIND_DN: str = ""
+    LDAP_BIND_PASSWORD: str = ""
+    LDAP_BASE_DN: str = "dc=example,dc=com"
+    LDAP_USER_FILTER: str = "(sAMAccountName={username})"
+    LDAP_DEFAULT_ROLE: str = "Viewer"
+
     @field_validator("JWT_SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:

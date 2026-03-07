@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import HTTPException, Response, status
 
@@ -12,6 +13,7 @@ from app.core.security import (
     is_blocklisted,
 )
 from app.models.audit_log import AuditAction, ResourceType
+from app.models.user import Role
 from app.repositories.user_repository import UserRepository
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.schemas.auth import TokenResponse
@@ -30,6 +32,23 @@ class AuthService:
         self._users = user_repo
         self._audit = audit_repo
 
+    async def _try_ldap_auth(
+        self,
+        username: str,
+        password: str,
+        settings,
+    ) -> Optional[dict]:
+        """Attempt LDAP authentication. Returns user attributes dict or None."""
+        if not getattr(settings, "LDAP_ENABLED", False):
+            return None
+        try:
+            from app.services.ldap_service import LDAPService
+            svc = LDAPService(settings)
+            return svc.authenticate(username, password)
+        except Exception as exc:
+            logger.warning("LDAP auth attempt failed: %s", exc)
+            return None
+
     async def login(
         self,
         username: str,
@@ -40,6 +59,63 @@ class AuthService:
     ) -> TokenResponse:
         user = await self._users.find_by_username(username)
 
+        # ── LDAP path ──────────────────────────────────────────────────────
+        if getattr(settings, "LDAP_ENABLED", False):
+            if user is not None and getattr(user, "auth_type", "local") == "ldap":
+                # Existing LDAP user — re-authenticate via LDAP
+                ldap_attrs = await self._try_ldap_auth(username, password, settings)
+                if ldap_attrs is None or not user.is_active:
+                    await self._audit.log(
+                        action=AuditAction.LOGIN_FAILED,
+                        resource_type=ResourceType.AUTH,
+                        username=username,
+                        user_role=user.role.value if user else "unknown",
+                        client_ip=client_ip,
+                        detail=f"LDAP login failed for username '{username}'",
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid username or password",
+                    )
+                # Fall through to token generation below
+            elif user is None:
+                # Unknown user — try LDAP auto-provision
+                ldap_attrs = await self._try_ldap_auth(username, password, settings)
+                if ldap_attrs is None:
+                    await self._audit.log(
+                        action=AuditAction.LOGIN_FAILED,
+                        resource_type=ResourceType.AUTH,
+                        username=username,
+                        user_role="unknown",
+                        client_ip=client_ip,
+                        detail=f"Login failed: user not found for username '{username}'",
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid username or password",
+                    )
+                # Auto-provision the LDAP user as Viewer
+                now = datetime.now(timezone.utc)
+                default_role = getattr(settings, "LDAP_DEFAULT_ROLE", "Viewer")
+                doc = {
+                    "username": username,
+                    "password_hash": "",
+                    "full_name": ldap_attrs.get("full_name", username),
+                    "email": ldap_attrs.get("email"),
+                    "role": default_role,
+                    "is_active": True,
+                    "auth_type": "ldap",
+                    "created_at": now,
+                    "updated_at": now,
+                    "created_by": "ldap",
+                    "last_login": None,
+                }
+                user = await self._users.create(doc)
+                logger.info("Auto-provisioned LDAP user '%s' with role %s", username, default_role)
+                # Fall through to token generation below
+            # else: user exists and is a local user — fall through to local auth below
+
+        # ── Local auth path ────────────────────────────────────────────────
         if user is None or not user.is_active:
             await self._audit.log(
                 action=AuditAction.LOGIN_FAILED,
@@ -54,19 +130,21 @@ class AuthService:
                 detail="Invalid username or password",
             )
 
-        if not verify_password(password, user.password_hash):
-            await self._audit.log(
-                action=AuditAction.LOGIN_FAILED,
-                resource_type=ResourceType.AUTH,
-                username=username,
-                user_role=user.role.value,
-                client_ip=client_ip,
-                detail=f"Login failed: incorrect password for username '{username}'",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password",
-            )
+        # Only verify password for local users
+        if getattr(user, "auth_type", "local") == "local":
+            if not verify_password(password, user.password_hash):
+                await self._audit.log(
+                    action=AuditAction.LOGIN_FAILED,
+                    resource_type=ResourceType.AUTH,
+                    username=username,
+                    user_role=user.role.value,
+                    client_ip=client_ip,
+                    detail=f"Login failed: incorrect password for username '{username}'",
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid username or password",
+                )
 
         access_token = create_access_token(
             username=user.username,
@@ -210,6 +288,12 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found",
+            )
+
+        if getattr(user, "auth_type", "local") == "ldap":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="LDAP/AD users must change their password in the directory, not here.",
             )
 
         if not verify_password(current_password, user.password_hash):

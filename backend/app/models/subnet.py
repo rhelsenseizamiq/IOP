@@ -19,6 +19,7 @@ class Subnet(BaseModel):
     vrf_id: Optional[str] = None      # ObjectId of VRF; None = global
     prefix_len: int = 0               # denormalized from CIDR for fast MongoDB queries
     alert_threshold: Optional[int] = None  # 1-100; alert when utilization >= this value
+    ip_version: int = 4  # 4 or 6
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     created_by: str = "system"

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Card, Alert, Typography, Space } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Form, Input, Button, Card, Alert, Typography, Space, Tag } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { authApi } from '../../api/auth';
 
 interface LoginFormValues {
   username: string;
@@ -19,6 +20,13 @@ const LoginPage: React.FC = () => {
   const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [ldapEnabled, setLdapEnabled] = useState(false);
+
+  useEffect(() => {
+    authApi.config()
+      .then((res) => setLdapEnabled(res.data.ldap_enabled))
+      .catch(() => {/* non-critical */});
+  }, []);
 
   const from = (location.state as LocationState)?.from?.pathname ?? '/dashboard';
 
@@ -70,7 +78,14 @@ const LoginPage: React.FC = () => {
             <Typography.Title level={3} style={{ margin: 0, color: '#001529' }}>
               IPAM Portal
             </Typography.Title>
-            <Typography.Text type="secondary">IP Address Management System</Typography.Text>
+            <Space direction="vertical" size={4}>
+              <Typography.Text type="secondary">IP Address Management System</Typography.Text>
+              {ldapEnabled && (
+                <Tag color="purple" style={{ margin: 0 }}>
+                  LDAP/AD Authentication Enabled
+                </Tag>
+              )}
+            </Space>
           </div>
 
           {errorMsg && (

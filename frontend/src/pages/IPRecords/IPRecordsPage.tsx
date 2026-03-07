@@ -56,15 +56,23 @@ const OS_OPTIONS: OSType[] = ['AIX', 'Linux', 'Windows', 'macOS', 'OpenShift', '
 const STATUS_OPTIONS: IPStatus[] = ['Free', 'Reserved', 'In Use'];
 const PAGE_SIZE = 20;
 
-function ipToInt(ip: string): number {
+function isIPv6(ip: string): boolean {
+  return ip.includes(':');
+}
+
+function ipv4ToInt(ip: string): number {
   return ip.split('.').reduce((acc, octet) => ((acc << 8) + parseInt(octet, 10)) >>> 0, 0);
 }
 
 function isIPInCIDR(ip: string, cidr: string): boolean {
   const [network, prefixStr] = cidr.split('/');
   const prefix = parseInt(prefixStr, 10);
+  if (isIPv6(ip) || isIPv6(network)) {
+    // For IPv6, rely on server-side validation; client-side just allow it
+    return true;
+  }
   const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
-  return (ipToInt(ip) & mask) === (ipToInt(network) & mask);
+  return (ipv4ToInt(ip) & mask) === (ipv4ToInt(network) & mask);
 }
 
 const IPRecordsPage: React.FC = () => {
@@ -674,8 +682,13 @@ const IPRecordsPage: React.FC = () => {
             rules={[
               { required: true, message: 'IP address is required' },
               {
-                pattern: /^(\d{1,3}\.){3}\d{1,3}$/,
-                message: 'Enter a valid IPv4 address',
+                validator(_rule, value: string) {
+                  if (!value) return Promise.resolve();
+                  const ipv4Re = /^(\d{1,3}\.){3}\d{1,3}$/;
+                  const ipv6Re = /^[0-9a-fA-F:]+$/;
+                  if (ipv4Re.test(value) || ipv6Re.test(value)) return Promise.resolve();
+                  return Promise.reject(new Error('Enter a valid IPv4 or IPv6 address'));
+                },
               },
               {
                 validator(_rule, value: string) {

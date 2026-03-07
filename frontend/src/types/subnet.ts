@@ -15,6 +15,7 @@ export interface Subnet {
   is_container: boolean;
   child_prefix_count: number;
   alert_threshold: number | null;
+  ip_version: 4 | 6;
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -44,6 +45,7 @@ export interface SubnetCreate {
   parent_id?: string;
   vrf_id?: string;
   alert_threshold?: number;
+  ip_version?: 4 | 6;
 }
 
 export interface SubnetUpdate {

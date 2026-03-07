@@ -19,13 +19,14 @@ import {
   Divider,
   Tooltip,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, BugOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { ipRangesApi } from '../../api/ipRanges';
 import { useAuth } from '../../context/AuthContext';
 import type { SubnetDetail } from '../../types/subnet';
 import type { IPRange, IPRangeCreate, IPRangeUpdate, IPRangeStatus } from '../../types/ipRange';
 import { ENV_COLOR } from '../../constants/environments';
+import ConflictScanDrawer from './ConflictScanDrawer';
 
 const STATUS_OPTIONS: IPRangeStatus[] = ['Active', 'Reserved', 'Deprecated'];
 const STATUS_COLOR: Record<IPRangeStatus, string> = {
@@ -47,6 +48,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({ subnet, onClose }) => {
   const [rangeModal, setRangeModal] = useState(false);
   const [editingRange, setEditingRange] = useState<IPRange | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [conflictDrawerOpen, setConflictDrawerOpen] = useState(false);
   const [form] = Form.useForm<IPRangeCreate & IPRangeUpdate>();
 
   const fetchRanges = useCallback(async (subnetId: string): Promise<void> => {
@@ -206,6 +208,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({ subnet, onClose }) => {
 
   if (!subnet) return null;
 
+
   const totalIps = subnet.total_ips;
   const usedPct = totalIps > 0 ? parseFloat((subnet.used_ips / totalIps * 100).toFixed(1)) : 0;
   const strokeColor = usedPct >= 90 ? '#ff4d4f' : usedPct >= 70 ? '#faad14' : '#52c41a';
@@ -223,6 +226,19 @@ const SubnetDetailDrawer: React.FC<Props> = ({ subnet, onClose }) => {
         width={680}
         open={!!subnet}
         onClose={onClose}
+        extra={
+          hasRole('Operator') && (
+            <Tooltip title="Scan for DNS conflicts">
+              <Button
+                icon={<BugOutlined />}
+                size="small"
+                onClick={() => setConflictDrawerOpen(true)}
+              >
+                Scan Conflicts
+              </Button>
+            </Tooltip>
+          )
+        }
       >
         <Descriptions size="small" column={2} bordered>
           <Descriptions.Item label="CIDR">{subnet.cidr}</Descriptions.Item>
@@ -314,6 +330,14 @@ const SubnetDetailDrawer: React.FC<Props> = ({ subnet, onClose }) => {
           View all IP records in this subnet →
         </Button>
       </Drawer>
+
+      {/* DNS Conflict Scan Drawer */}
+      <ConflictScanDrawer
+        subnetId={subnet.id}
+        subnetCidr={subnet.cidr}
+        open={conflictDrawerOpen}
+        onClose={() => setConflictDrawerOpen(false)}
+      />
 
       {/* IP Range Create/Edit Modal */}
       <Modal

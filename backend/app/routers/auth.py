@@ -118,6 +118,14 @@ async def refresh_token(
     )
 
 
+@router.get("/config", response_model=dict)
+async def auth_config(
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Returns public auth configuration (no credentials required)."""
+    return {"ldap_enabled": getattr(settings, "LDAP_ENABLED", False)}
+
+
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 async def change_password(
     request: Request,

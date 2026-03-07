@@ -1,21 +1,22 @@
 import ipaddress
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.ip_record import Environment
 
 
 class SubnetCreate(BaseModel):
-    cidr: str = Field(..., description="Network in CIDR notation, e.g. 192.168.1.0/24")
+    cidr: str = Field(..., description="Network in CIDR notation, e.g. 192.168.1.0/24 or 2001:db8::/48")
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
-    gateway: Optional[str] = Field(None, description="Gateway IPv4 address within the subnet")
+    gateway: Optional[str] = Field(None, description="Gateway IP address within the subnet")
     vlan_id: Optional[int] = Field(None, ge=1, le=4094)
     environment: Environment
     parent_id: Optional[str] = None
     vrf_id: Optional[str] = None
     alert_threshold: Optional[int] = Field(None, ge=1, le=100)
+    ip_version: Literal[4, 6] = 4
 
     @field_validator("cidr")
     @classmethod
@@ -25,6 +26,19 @@ class SubnetCreate(BaseModel):
         except ValueError as exc:
             raise ValueError(f"Invalid CIDR notation: {v}") from exc
         return v
+
+    @model_validator(mode="after")
+    def validate_cidr_version_match(self) -> "SubnetCreate":
+        try:
+            net = ipaddress.ip_network(self.cidr, strict=False)
+            actual_version = net.version
+            if actual_version != self.ip_version:
+                raise ValueError(
+                    f"CIDR {self.cidr} is IPv{actual_version} but ip_version={self.ip_version}"
+                )
+        except ValueError:
+            raise
+        return self
 
     @field_validator("gateway")
     @classmethod
@@ -72,6 +86,7 @@ class SubnetResponse(BaseModel):
     is_container: bool = False
     child_prefix_count: int = 0
     alert_threshold: Optional[int] = None
+    ip_version: int = 4
     created_at: datetime
     updated_at: datetime
     created_by: str

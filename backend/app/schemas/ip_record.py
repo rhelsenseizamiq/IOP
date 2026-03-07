@@ -17,7 +17,7 @@ class BulkUpdateRequest(BulkActionRequest):
 
 
 class IPRecordCreate(BaseModel):
-    ip_address: str = Field(..., description="Valid IPv4 address")
+    ip_address: str = Field(..., description="Valid IPv4 or IPv6 address")
     hostname: Optional[str] = Field(None, max_length=253)
     os_type: OSType
     subnet_id: str = Field(..., description="MongoDB ObjectId string of the parent subnet")
@@ -28,13 +28,11 @@ class IPRecordCreate(BaseModel):
 
     @field_validator("ip_address")
     @classmethod
-    def validate_ipv4(cls, v: str) -> str:
+    def validate_ip_address(cls, v: str) -> str:
         try:
-            addr = ipaddress.ip_address(v)
-            if not isinstance(addr, ipaddress.IPv4Address):
-                raise ValueError("Only IPv4 addresses are supported")
+            ipaddress.ip_address(v)
         except ValueError as exc:
-            raise ValueError(f"Invalid IPv4 address: {v}") from exc
+            raise ValueError(f"Invalid IP address: {v}") from exc
         return v
 
 

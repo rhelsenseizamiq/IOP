@@ -39,6 +39,7 @@ def _to_response(subnet: Subnet) -> SubnetResponse:
         is_container=False,
         child_prefix_count=0,
         alert_threshold=getattr(subnet, "alert_threshold", None),
+        ip_version=getattr(subnet, "ip_version", 4),
         created_at=subnet.created_at,
         updated_at=subnet.updated_at,
         created_by=subnet.created_by,
@@ -125,13 +126,15 @@ class SubnetService:
             for candidate in candidates:
                 try:
                     candidate_net = ipaddress.ip_network(candidate.cidr, strict=False)
+                    if candidate_net.version != network.version:
+                        continue
                     if (
                         network.subnet_of(candidate_net)
                         and candidate.prefix_len > best_prefix_len
                     ):
                         best_parent = candidate
                         best_prefix_len = candidate.prefix_len
-                except ValueError:
+                except (ValueError, TypeError):
                     continue
             parent_id = best_parent.id if best_parent else None
 
@@ -147,6 +150,7 @@ class SubnetService:
             "vrf_id": data.vrf_id,
             "prefix_len": prefix_len,
             "alert_threshold": data.alert_threshold,
+            "ip_version": data.ip_version,
             "created_at": now,
             "updated_at": now,
             "created_by": username,
@@ -166,9 +170,11 @@ class SubnetService:
                 continue
             try:
                 s_net = ipaddress.ip_network(s.cidr, strict=False)
+                if s_net.version != network.version:
+                    continue
                 if s_net.subnet_of(network):
                     to_reparent.append(s.id)
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
 
         if to_reparent:
@@ -229,6 +235,7 @@ class SubnetService:
                 is_container=False,
                 child_prefix_count=0,
                 alert_threshold=getattr(subnet, "alert_threshold", None),
+                ip_version=getattr(subnet, "ip_version", 4),
                 created_at=subnet.created_at,
                 updated_at=subnet.updated_at,
                 created_by=subnet.created_by,
@@ -368,6 +375,7 @@ class SubnetService:
             is_container=False,
             child_prefix_count=0,
             alert_threshold=getattr(subnet, "alert_threshold", None),
+            ip_version=getattr(subnet, "ip_version", 4),
             created_at=subnet.created_at,
             updated_at=subnet.updated_at,
             created_by=subnet.created_by,
@@ -450,6 +458,7 @@ class SubnetService:
                 is_container=is_container,
                 child_prefix_count=len(direct_children),
                 alert_threshold=getattr(subnet, "alert_threshold", None),
+                ip_version=getattr(subnet, "ip_version", 4),
                 created_at=subnet.created_at,
                 updated_at=subnet.updated_at,
                 created_by=subnet.created_by,

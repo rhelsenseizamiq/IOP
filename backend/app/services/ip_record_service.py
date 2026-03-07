@@ -79,9 +79,17 @@ class IPRecordService:
                 detail=f"Subnet '{data.subnet_id}' not found",
             )
 
-        # Validate IP is within subnet CIDR
+        # Validate IP is within subnet CIDR and version matches
         network = ipaddress.ip_network(subnet.cidr, strict=False)
         ip_addr = ipaddress.ip_address(data.ip_address)
+        if ip_addr.version != network.version:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"IP version mismatch: address {data.ip_address} is IPv{ip_addr.version} "
+                    f"but subnet {subnet.cidr} is IPv{network.version}"
+                ),
+            )
         if ip_addr not in network:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -316,10 +324,8 @@ class IPRecordService:
                     raise ValueError("ip_address is required")
                 try:
                     ip_addr = ipaddress.ip_address(ip)
-                    if not isinstance(ip_addr, ipaddress.IPv4Address):
-                        raise ValueError("Only IPv4 is supported")
                 except ValueError as exc:
-                    raise ValueError(f"Invalid IPv4 address: {ip}") from exc
+                    raise ValueError(f"Invalid IP address: {ip}") from exc
 
                 # ── Validate OS type ───────────────────────────────────────
                 raw_os = row.get("os_type", "").strip()
@@ -356,8 +362,13 @@ class IPRecordService:
                 if subnet is None:
                     raise ValueError(f"Subnet '{cidr}' not found in the database")
 
-                # ── Verify IP is within subnet ─────────────────────────────
+                # ── Verify IP version matches subnet and is within range ───
                 network = ipaddress.ip_network(subnet.cidr, strict=False)
+                if ip_addr.version != network.version:
+                    raise ValueError(
+                        f"IP version mismatch: {ip} is IPv{ip_addr.version} "
+                        f"but subnet {subnet.cidr} is IPv{network.version}"
+                    )
                 if ip_addr not in network:
                     raise ValueError(f"IP {ip} is not within subnet {subnet.cidr}")
 
