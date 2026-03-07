@@ -18,6 +18,7 @@ class Subnet(BaseModel):
     parent_id: Optional[str] = None   # ObjectId of parent subnet; None = root
     vrf_id: Optional[str] = None      # ObjectId of VRF; None = global
     prefix_len: int = 0               # denormalized from CIDR for fast MongoDB queries
+    alert_threshold: Optional[int] = None  # 1-100; alert when utilization >= this value
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     created_by: str = "system"

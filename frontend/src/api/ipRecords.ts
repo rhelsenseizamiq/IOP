@@ -1,6 +1,13 @@
 import apiClient from './client';
-import type { IPRecord, IPRecordCreate, IPRecordUpdate, IPRecordFilters } from '../types/ipRecord';
+import type { AuditLog } from '../types/auditLog';
+import type { IPRecord, IPRecordCreate, IPRecordUpdate, IPRecordFilters, OSType, Environment } from '../types/ipRecord';
 import type { PaginatedResponse } from '../types/common';
+
+export interface BulkUpdateFields {
+  environment?: Environment;
+  owner?: string;
+  os_type?: OSType;
+}
 
 export interface ImportResult {
   imported: number;
@@ -56,4 +63,16 @@ export const ipRecordsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+
+  getHistory: (id: string) =>
+    apiClient.get<AuditLog[]>(`/ip-records/${id}/history`),
+
+  bulkReserve: (ids: string[]) =>
+    apiClient.post<{ modified: number }>('/ip-records/bulk/reserve', { ids }),
+
+  bulkRelease: (ids: string[]) =>
+    apiClient.post<{ modified: number }>('/ip-records/bulk/release', { ids }),
+
+  bulkUpdate: (ids: string[], fields: BulkUpdateFields) =>
+    apiClient.post<{ modified: number }>('/ip-records/bulk/update', { ids, ...fields }),
 };

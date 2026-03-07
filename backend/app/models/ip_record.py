@@ -21,8 +21,13 @@ class IPStatus(str, Enum):
 
 class Environment(str, Enum):
     PRODUCTION = "Production"
+    STAGING = "Staging"
+    UAT = "UAT"
+    QA = "QA"
     TEST = "Test"
     DEVELOPMENT = "Development"
+    DR = "DR"
+    LAB = "Lab"
 
 
 class IPRecord(BaseModel):

@@ -14,6 +14,7 @@ export interface Subnet {
   depth: number;
   is_container: boolean;
   child_prefix_count: number;
+  alert_threshold: number | null;
   created_at: string;
   updated_at: string;
   created_by: string;
@@ -42,6 +43,7 @@ export interface SubnetCreate {
   environment: Environment;
   parent_id?: string;
   vrf_id?: string;
+  alert_threshold?: number;
 }
 
 export interface SubnetUpdate {
@@ -51,4 +53,5 @@ export interface SubnetUpdate {
   vlan_id?: number;
   environment?: Environment;
   vrf_id?: string;
+  alert_threshold?: number;
 }

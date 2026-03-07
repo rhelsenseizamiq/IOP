@@ -23,6 +23,7 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   RightOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { subnetsApi } from '../../api/subnets';
@@ -32,14 +33,14 @@ import type { SubnetCreate, SubnetDetail, SubnetTreeNode, SubnetUpdate } from '.
 import type { Environment } from '../../types/ipRecord';
 import type { VRF } from '../../types/vrf';
 import SubnetDetailDrawer from './SubnetDetailDrawer';
+import { ENV_OPTIONS, ENV_COLOR } from '../../constants/environments';
 
-const ENV_OPTIONS: Environment[] = ['Production', 'Test', 'Development'];
-
-const ENV_COLOR: Record<Environment, string> = {
-  Production: 'red',
-  Test: 'orange',
-  Development: 'cyan',
-};
+function stripEmptyChildren(nodes: SubnetTreeNode[]): SubnetTreeNode[] {
+  return nodes.map((node) => ({
+    ...node,
+    children: node.children.length > 0 ? stripEmptyChildren(node.children) : (undefined as unknown as SubnetTreeNode[]),
+  }));
+}
 
 const SubnetsPage: React.FC = () => {
   const { hasRole } = useAuth();
@@ -105,6 +106,7 @@ const SubnetsPage: React.FC = () => {
         vlan_id: subnet.vlan_id ?? undefined,
         environment: subnet.environment,
         vrf_id: subnet.vrf_id ?? undefined,
+        alert_threshold: subnet.alert_threshold ?? undefined,
       });
       setModalOpen(true);
     },
@@ -123,6 +125,7 @@ const SubnetsPage: React.FC = () => {
             vlan_id: values.vlan_id,
             environment: values.environment,
             vrf_id: values.vrf_id,
+            alert_threshold: values.alert_threshold,
           };
           await subnetsApi.update(editingSubnet.id, update);
           message.success('Subnet updated');
@@ -135,6 +138,7 @@ const SubnetsPage: React.FC = () => {
             vlan_id: values.vlan_id,
             environment: values.environment!,
             vrf_id: values.vrf_id,
+            alert_threshold: values.alert_threshold,
           };
           await subnetsApi.create(create);
           message.success('Subnet created');
@@ -172,15 +176,28 @@ const SubnetsPage: React.FC = () => {
       dataIndex: 'cidr',
       key: 'cidr',
       width: 180,
-      render: (v: string, record: SubnetTreeNode) => (
-        <Typography.Text
-          code
-          style={{ cursor: 'pointer', color: '#1677ff' }}
-          onClick={() => setDrawerSubnet(record)}
-        >
-          {v}
-        </Typography.Text>
-      ),
+      render: (v: string, record: SubnetTreeNode) => {
+        const overThreshold =
+          record.alert_threshold !== null &&
+          record.alert_threshold !== undefined &&
+          record.utilization_pct >= record.alert_threshold;
+        return (
+          <span>
+            {overThreshold && (
+              <Tooltip title={`Utilization ${record.utilization_pct}% ≥ threshold ${record.alert_threshold}%`}>
+                <WarningOutlined style={{ color: '#ff4d4f', marginRight: 4 }} />
+              </Tooltip>
+            )}
+            <Typography.Text
+              code
+              style={{ cursor: 'pointer', color: '#1677ff' }}
+              onClick={() => setDrawerSubnet(record)}
+            >
+              {v}
+            </Typography.Text>
+          </span>
+        );
+      },
     },
     {
       title: 'Name',
@@ -354,14 +371,18 @@ const SubnetsPage: React.FC = () => {
       </div>
 
       <Table<SubnetTreeNode>
-        dataSource={tree}
+        dataSource={stripEmptyChildren(tree)}
         columns={columns}
         rowKey="id"
         loading={loading}
         scroll={{ x: 1000 }}
         pagination={false}
         size="small"
-        expandable={{ childrenColumnName: 'children', defaultExpandAllRows: false }}
+        expandable={{
+          childrenColumnName: 'children',
+          defaultExpandAllRows: false,
+          rowExpandable: (record) => (record.children?.length ?? 0) > 0,
+        }}
       />
 
       {/* Subnet Detail Drawer */}
@@ -441,6 +462,15 @@ const SubnetsPage: React.FC = () => {
             <Col span={12}>
               <Form.Item label="Gateway" name="gateway">
                 <Input placeholder="192.168.1.1" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="Alert Threshold %"
+                name="alert_threshold"
+                tooltip="Trigger alert when utilization reaches this percentage"
+              >
+                <InputNumber min={1} max={100} style={{ width: '100%' }} placeholder="e.g. 80" />
               </Form.Item>
             </Col>
           </Row>

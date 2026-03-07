@@ -3,13 +3,7 @@ import { Modal, Form, Input, Select, InputNumber, Row, Col, message, Tag } from 
 import { subnetsApi } from '../../api/subnets';
 import type { SubnetDetail } from '../../types/subnet';
 import type { Environment } from '../../types/ipRecord';
-
-const ENV_OPTIONS: Environment[] = ['Production', 'Test', 'Development'];
-const ENV_COLOR: Record<Environment, string> = {
-  Production: 'red',
-  Test: 'orange',
-  Development: 'cyan',
-};
+import { ENV_OPTIONS, ENV_COLOR } from '../../constants/environments';
 
 interface Props {
   open: boolean;

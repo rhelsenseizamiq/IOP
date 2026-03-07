@@ -1,6 +1,14 @@
 export type OSType = 'AIX' | 'Linux' | 'Windows' | 'macOS' | 'OpenShift' | 'Unknown';
 export type IPStatus = 'Free' | 'Reserved' | 'In Use';
-export type Environment = 'Production' | 'Test' | 'Development';
+export type Environment =
+  | 'Production'
+  | 'Staging'
+  | 'UAT'
+  | 'QA'
+  | 'Test'
+  | 'Development'
+  | 'DR'
+  | 'Lab';
 
 export interface IPRecord {
   id: string;

@@ -25,6 +25,7 @@ import { ipRangesApi } from '../../api/ipRanges';
 import { useAuth } from '../../context/AuthContext';
 import type { SubnetDetail } from '../../types/subnet';
 import type { IPRange, IPRangeCreate, IPRangeUpdate, IPRangeStatus } from '../../types/ipRange';
+import { ENV_COLOR } from '../../constants/environments';
 
 const STATUS_OPTIONS: IPRangeStatus[] = ['Active', 'Reserved', 'Deprecated'];
 const STATUS_COLOR: Record<IPRangeStatus, string> = {
@@ -206,7 +207,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({ subnet, onClose }) => {
   if (!subnet) return null;
 
   const totalIps = subnet.total_ips;
-  const usedPct = totalIps > 0 ? Math.round((subnet.used_ips / totalIps) * 100) : 0;
+  const usedPct = totalIps > 0 ? parseFloat((subnet.used_ips / totalIps * 100).toFixed(1)) : 0;
   const strokeColor = usedPct >= 90 ? '#ff4d4f' : usedPct >= 70 ? '#faad14' : '#52c41a';
 
   return (
@@ -228,15 +229,7 @@ const SubnetDetailDrawer: React.FC<Props> = ({ subnet, onClose }) => {
           <Descriptions.Item label="Prefix Length">/{subnet.prefix_len}</Descriptions.Item>
           <Descriptions.Item label="Name">{subnet.name}</Descriptions.Item>
           <Descriptions.Item label="Environment">
-            <Tag
-              color={
-                subnet.environment === 'Production'
-                  ? 'red'
-                  : subnet.environment === 'Test'
-                    ? 'orange'
-                    : 'cyan'
-              }
-            >
+            <Tag color={ENV_COLOR[subnet.environment]}>
               {subnet.environment}
             </Tag>
           </Descriptions.Item>

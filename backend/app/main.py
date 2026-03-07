@@ -131,7 +131,7 @@ def create_app() -> FastAPI:
     )
 
     # Include routers
-    from app.routers import auth, users, ip_records, subnets, audit_logs, scan
+    from app.routers import auth, users, ip_records, subnets, audit_logs, scan, stats
     from app.routers import vrfs, rirs, aggregates, ip_ranges
 
     api_prefix = "/api/v1"
@@ -141,6 +141,7 @@ def create_app() -> FastAPI:
     app.include_router(subnets.router, prefix=api_prefix)
     app.include_router(audit_logs.router, prefix=api_prefix)
     app.include_router(scan.router, prefix=api_prefix)
+    app.include_router(stats.router, prefix=api_prefix)
     app.include_router(vrfs.router, prefix=api_prefix)
     app.include_router(rirs.router, prefix=api_prefix)
     app.include_router(aggregates.router, prefix=api_prefix)

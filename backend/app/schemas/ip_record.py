@@ -6,6 +6,16 @@ from pydantic import BaseModel, Field, field_validator
 from app.models.ip_record import OSType, IPStatus, Environment
 
 
+class BulkActionRequest(BaseModel):
+    ids: list[str] = Field(..., min_length=1, max_length=500)
+
+
+class BulkUpdateRequest(BulkActionRequest):
+    environment: Optional[Environment] = None
+    owner: Optional[str] = Field(None, max_length=100)
+    os_type: Optional[OSType] = None
+
+
 class IPRecordCreate(BaseModel):
     ip_address: str = Field(..., description="Valid IPv4 address")
     hostname: Optional[str] = Field(None, max_length=253)

@@ -14,6 +14,7 @@ import {
   Col,
   Tag,
   Tooltip,
+  Alert,
 } from 'antd';
 const { useWatch } = Form;
 import {
@@ -26,12 +27,16 @@ import {
   ReloadOutlined,
   DownloadOutlined,
   UploadOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import type { TableRowSelection } from 'antd/es/table/interface';
 import { ipRecordsApi } from '../../api/ipRecords';
+import type { BulkUpdateFields } from '../../api/ipRecords';
 import { subnetsApi } from '../../api/subnets';
 import ExportModal from './ExportModal';
 import ImportModal from './ImportModal';
+import IPRecordHistoryDrawer from './IPRecordHistoryDrawer';
 import { useAuth } from '../../context/AuthContext';
 import StatusBadge from '../../components/common/StatusBadge';
 import OSIcon from '../../components/common/OSIcon';
@@ -45,10 +50,10 @@ import type {
   IPRecordFilters,
 } from '../../types/ipRecord';
 import type { SubnetDetail } from '../../types/subnet';
+import { ENV_OPTIONS, ENV_COLOR } from '../../constants/environments';
 
 const OS_OPTIONS: OSType[] = ['AIX', 'Linux', 'Windows', 'macOS', 'OpenShift', 'Unknown'];
 const STATUS_OPTIONS: IPStatus[] = ['Free', 'Reserved', 'In Use'];
-const ENV_OPTIONS: Environment[] = ['Production', 'Test', 'Development'];
 const PAGE_SIZE = 20;
 
 function ipToInt(ip: string): number {
@@ -61,12 +66,6 @@ function isIPInCIDR(ip: string, cidr: string): boolean {
   const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
   return (ipToInt(ip) & mask) === (ipToInt(network) & mask);
 }
-
-const ENV_COLOR: Record<Environment, string> = {
-  Production: 'red',
-  Test: 'orange',
-  Development: 'cyan',
-};
 
 const IPRecordsPage: React.FC = () => {
   const { hasRole } = useAuth();
@@ -86,6 +85,15 @@ const IPRecordsPage: React.FC = () => {
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // History drawer
+  const [historyRecord, setHistoryRecord] = useState<IPRecord | null>(null);
+
+  // Row selection + bulk actions
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const [bulkForm] = Form.useForm<BulkUpdateFields>();
   const [form] = Form.useForm<IPRecordCreate & IPRecordUpdate>();
   const watchedSubnetId = useWatch('subnet_id', form) as string | undefined;
   const selectedSubnet = subnets.find((s) => s.id === watchedSubnetId);
@@ -249,6 +257,62 @@ const IPRecordsPage: React.FC = () => {
     [currentPage, filters, fetchRecords]
   );
 
+  const handleBulkReserve = useCallback(async (): Promise<void> => {
+    const ids = selectedRowKeys as string[];
+    try {
+      await ipRecordsApi.bulkReserve(ids);
+      message.success(`Reserved ${ids.length} records`);
+      setSelectedRowKeys([]);
+      void fetchRecords(currentPage, filters);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+      message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Bulk reserve failed');
+    }
+  }, [selectedRowKeys, currentPage, filters, fetchRecords]);
+
+  const handleBulkRelease = useCallback(async (): Promise<void> => {
+    const ids = selectedRowKeys as string[];
+    try {
+      await ipRecordsApi.bulkRelease(ids);
+      message.success(`Released ${ids.length} records`);
+      setSelectedRowKeys([]);
+      void fetchRecords(currentPage, filters);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+      message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Bulk release failed');
+    }
+  }, [selectedRowKeys, currentPage, filters, fetchRecords]);
+
+  const handleBulkUpdate = useCallback(
+    async (values: BulkUpdateFields): Promise<void> => {
+      const ids = selectedRowKeys as string[];
+      setBulkSubmitting(true);
+      try {
+        const fields: BulkUpdateFields = {};
+        if (values.environment) fields.environment = values.environment;
+        if (values.owner !== undefined && values.owner !== '') fields.owner = values.owner;
+        if (values.os_type) fields.os_type = values.os_type;
+        await ipRecordsApi.bulkUpdate(ids, fields);
+        message.success(`Updated ${ids.length} records`);
+        setBulkModalOpen(false);
+        bulkForm.resetFields();
+        setSelectedRowKeys([]);
+        void fetchRecords(currentPage, filters);
+      } catch (err: unknown) {
+        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Bulk update failed');
+      } finally {
+        setBulkSubmitting(false);
+      }
+    },
+    [selectedRowKeys, currentPage, filters, fetchRecords, bulkForm]
+  );
+
+  const rowSelection: TableRowSelection<IPRecord> = {
+    selectedRowKeys,
+    onChange: (keys) => setSelectedRowKeys(keys),
+  };
+
   const subnetMap = React.useMemo(
     () => new Map(subnets.map((s) => [s.id, s.cidr])),
     [subnets]
@@ -315,6 +379,13 @@ const IPRecordsPage: React.FC = () => {
       fixed: 'right',
       render: (_, record) => (
         <Space size={4}>
+          <Tooltip title="History">
+            <Button
+              size="small"
+              icon={<HistoryOutlined />}
+              onClick={() => setHistoryRecord(record)}
+            />
+          </Tooltip>
           {hasRole('Operator') && record.status === 'Free' && (
             <Tooltip title="Reserve">
               <Button
@@ -474,12 +545,38 @@ const IPRecordsPage: React.FC = () => {
         </Col>
       </Row>
 
+      {selectedRowKeys.length > 0 && hasRole('Operator') && (
+        <Alert
+          style={{ marginBottom: 8 }}
+          message={
+            <Space wrap>
+              <Typography.Text strong>{selectedRowKeys.length} record(s) selected</Typography.Text>
+              <Button size="small" icon={<LockOutlined />} onClick={() => void handleBulkReserve()}>
+                Reserve
+              </Button>
+              <Button size="small" icon={<UnlockOutlined />} onClick={() => void handleBulkRelease()}>
+                Release
+              </Button>
+              <Button size="small" icon={<EditOutlined />} onClick={() => setBulkModalOpen(true)}>
+                Update Fields
+              </Button>
+              <Button size="small" onClick={() => setSelectedRowKeys([])}>
+                Clear
+              </Button>
+            </Space>
+          }
+          type="info"
+          showIcon={false}
+        />
+      )}
+
       <Table<IPRecord>
         dataSource={records}
         columns={columns}
         rowKey="id"
+        rowSelection={rowSelection}
         loading={loading}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 1100 }}
         pagination={{
           current: currentPage,
           pageSize: PAGE_SIZE,
@@ -503,6 +600,51 @@ const IPRecordsPage: React.FC = () => {
         onClose={() => setImportOpen(false)}
         onImported={() => void fetchRecords(currentPage, filters)}
       />
+
+      <IPRecordHistoryDrawer
+        record={historyRecord}
+        onClose={() => setHistoryRecord(null)}
+      />
+
+      {/* Bulk Update Fields modal */}
+      <Modal
+        title="Update Fields for Selected Records"
+        open={bulkModalOpen}
+        onCancel={() => {
+          setBulkModalOpen(false);
+          bulkForm.resetFields();
+        }}
+        onOk={() => bulkForm.submit()}
+        okText="Update"
+        confirmLoading={bulkSubmitting}
+        width={400}
+        destroyOnClose
+      >
+        <Form
+          form={bulkForm}
+          layout="vertical"
+          onFinish={(values) => void handleBulkUpdate(values)}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item label="Environment" name="environment">
+            <Select allowClear placeholder="(no change)">
+              {ENV_OPTIONS.map((e) => (
+                <Select.Option key={e} value={e}>{e}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item label="OS Type" name="os_type">
+            <Select allowClear placeholder="(no change)">
+              {OS_OPTIONS.map((o) => (
+                <Select.Option key={o} value={o}>{o}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item label="Owner" name="owner">
+            <Input placeholder="(no change)" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* Create / Edit modal */}
       <Modal

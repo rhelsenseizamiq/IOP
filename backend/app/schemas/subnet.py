@@ -15,6 +15,7 @@ class SubnetCreate(BaseModel):
     environment: Environment
     parent_id: Optional[str] = None
     vrf_id: Optional[str] = None
+    alert_threshold: Optional[int] = Field(None, ge=1, le=100)
 
     @field_validator("cidr")
     @classmethod
@@ -43,6 +44,7 @@ class SubnetUpdate(BaseModel):
     vlan_id: Optional[int] = Field(None, ge=1, le=4094)
     environment: Optional[Environment] = None
     vrf_id: Optional[str] = None
+    alert_threshold: Optional[int] = Field(None, ge=1, le=100)
 
     @field_validator("gateway")
     @classmethod
@@ -69,6 +71,7 @@ class SubnetResponse(BaseModel):
     depth: int = 0
     is_container: bool = False
     child_prefix_count: int = 0
+    alert_threshold: Optional[int] = None
     created_at: datetime
     updated_at: datetime
     created_by: str
@@ -80,6 +83,7 @@ class SubnetDetailResponse(SubnetResponse):
     used_ips: int
     free_ips: int
     reserved_ips: int
+    alert_threshold: Optional[int] = None
 
 
 class SubnetTreeNode(SubnetDetailResponse):

@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { Modal, Select, Button, Space, Typography, message } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { ipRecordsApi } from '../../api/ipRecords';
-import type { IPRecordFilters, OSType, IPStatus, Environment } from '../../types/ipRecord';
+import type { IPRecordFilters, OSType, IPStatus } from '../../types/ipRecord';
 import type { SubnetDetail } from '../../types/subnet';
+import { ENV_OPTIONS } from '../../constants/environments';
 
-const OS_OPTIONS: OSType[] = ['AIX', 'Linux', 'Windows'];
+const OS_OPTIONS: OSType[] = ['AIX', 'Linux', 'Windows', 'macOS', 'OpenShift', 'Unknown'];
 const STATUS_OPTIONS: IPStatus[] = ['Free', 'Reserved', 'In Use'];
-const ENV_OPTIONS: Environment[] = ['Production', 'Test', 'Development'];
 
 interface Props {
   open: boolean;

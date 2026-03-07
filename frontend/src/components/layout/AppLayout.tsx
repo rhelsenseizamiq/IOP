@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Layout } from 'antd';
+import { Layout, Button, Tooltip } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
 import Sidebar from './Sidebar';
 import AppHeader from './Header';
+import HelpDrawer from './HelpDrawer';
 
 const { Sider, Header, Content } = Layout;
 
@@ -10,6 +12,7 @@ const SIDER_COLLAPSED_WIDTH = 64;
 
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -27,6 +30,8 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           top: 0,
           bottom: 0,
           zIndex: 100,
+          display: 'flex',
+          flexDirection: 'column',
         }}
         theme="dark"
       >
@@ -44,11 +49,39 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             borderBottom: '1px solid rgba(255,255,255,0.1)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
+            flexShrink: 0,
           }}
         >
           {collapsed ? 'IP' : 'IPAM Portal'}
         </div>
-        <Sidebar collapsed={collapsed} />
+
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <Sidebar collapsed={collapsed} />
+        </div>
+
+        <div
+          style={{
+            borderTop: '1px solid rgba(255,255,255,0.1)',
+            padding: collapsed ? '12px 0' : '12px 16px',
+            display: 'flex',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            flexShrink: 0,
+          }}
+        >
+          <Tooltip title="Help & Concepts" placement="right">
+            <Button
+              type="text"
+              icon={<QuestionCircleOutlined />}
+              onClick={() => setHelpOpen(true)}
+              style={{
+                color: 'rgba(255,255,255,0.65)',
+                padding: collapsed ? '4px 8px' : '4px 0',
+              }}
+            >
+              {collapsed ? null : 'Help & Concepts'}
+            </Button>
+          </Tooltip>
+        </div>
       </Sider>
 
       <Layout
@@ -88,6 +121,8 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
         </Content>
       </Layout>
+
+      <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
     </Layout>
   );
 };

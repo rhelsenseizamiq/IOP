@@ -1,4 +1,8 @@
+from datetime import datetime, timezone
 from typing import Optional
+
+from bson import ObjectId
+from bson.errors import InvalidId
 from motor.motor_asyncio import AsyncIOMotorCollection
 
 from app.models.ip_record import IPRecord, IPStatus
@@ -47,6 +51,54 @@ class IPRecordRepository(BaseRepository[IPRecord]):
             if status_key in counts:
                 counts[status_key] = row["count"]
         return counts
+
+    async def aggregate_by_field(self, field: str) -> dict[str, int]:
+        """Returns {field_value: count} for all documents in the collection."""
+        pipeline = [
+            {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
+        ]
+        cursor = self._col.aggregate(pipeline)
+        results = await cursor.to_list(length=None)
+        return {row["_id"]: row["count"] for row in results if row["_id"] is not None}
+
+    async def bulk_update_status(
+        self, ids: list[str], status: IPStatus, updated_by: str
+    ) -> int:
+        """Update status for multiple records. Returns modified_count."""
+        try:
+            oids = [ObjectId(id_) for id_ in ids]
+        except (InvalidId, TypeError):
+            return 0
+        result = await self._col.update_many(
+            {"_id": {"$in": oids}},
+            {"$set": {
+                "status": status.value,
+                "updated_by": updated_by,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        return result.modified_count
+
+    async def bulk_update_fields(
+        self, ids: list[str], fields: dict, updated_by: str
+    ) -> int:
+        """Update arbitrary fields for multiple records. Returns modified_count."""
+        if not fields:
+            return 0
+        try:
+            oids = [ObjectId(id_) for id_ in ids]
+        except (InvalidId, TypeError):
+            return 0
+        set_fields = {
+            **fields,
+            "updated_by": updated_by,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        result = await self._col.update_many(
+            {"_id": {"$in": oids}},
+            {"$set": set_fields},
+        )
+        return result.modified_count
 
     async def count_by_status_for_subnets(self, subnet_ids: list[str]) -> dict[str, dict]:
         """Returns {subnet_id: {"Free": N, "Reserved": N, "In Use": N}} for all given subnet IDs."""

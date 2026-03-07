@@ -17,7 +17,14 @@ from app.repositories.ip_record_repository import IPRecordRepository
 from app.repositories.subnet_repository import SubnetRepository
 from app.repositories.vrf_repository import VRFRepository
 from app.schemas.audit_log import PaginatedResponse
-from app.schemas.ip_record import IPRecordCreate, IPRecordResponse, IPRecordUpdate
+from app.schemas.audit_log import AuditLogResponse
+from app.schemas.ip_record import (
+    BulkActionRequest,
+    BulkUpdateRequest,
+    IPRecordCreate,
+    IPRecordResponse,
+    IPRecordUpdate,
+)
 from app.services.ip_record_service import IPRecordService
 
 logger = logging.getLogger(__name__)
@@ -258,6 +265,136 @@ async def import_ip_records(
         user_role=current_user.role.value,
         client_ip=_get_client_ip(request),
     )
+
+
+# ── History endpoint (Viewer+) — must come BEFORE /{id} routes ───────────────
+
+@router.get("/{id}/history", response_model=list[AuditLogResponse])
+async def get_ip_record_history(
+    id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
+    request: Request,
+    current_user: UserInToken = Depends(_VIEWER_PLUS),
+) -> list[AuditLogResponse]:
+    """Return the last 50 audit log entries for a specific IP record."""
+    from app.repositories.audit_log_repository import AuditLogRepository
+
+    db = get_database()
+    audit_repo = AuditLogRepository(db["audit_logs"])
+    logs, _ = await audit_repo.find_all(
+        filter_={"resource_id": id},
+        skip=0,
+        limit=50,
+        sort=[("timestamp", -1)],
+    )
+    return [
+        AuditLogResponse(
+            id=log.id,
+            action=log.action,
+            resource_type=log.resource_type,
+            resource_id=log.resource_id,
+            username=log.username,
+            user_role=log.user_role,
+            client_ip=log.client_ip,
+            timestamp=log.timestamp,
+            before=log.before,
+            after=log.after,
+            detail=log.detail,
+        )
+        for log in logs
+    ]
+
+
+# ── Bulk operations (Operator+) — must come BEFORE /{id} routes ──────────────
+
+@router.post("/bulk/reserve")
+async def bulk_reserve(
+    request: Request,
+    body: BulkActionRequest,
+    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+) -> dict:
+    """Reserve multiple IP records by ID."""
+    from app.models.audit_log import AuditAction, ResourceType
+
+    db = get_database()
+    ip_repo = IPRecordRepository(db["ip_records"])
+    audit_repo = AuditLogRepository(db["audit_logs"])
+    count = await ip_repo.bulk_update_status(
+        body.ids, IPStatus.RESERVED, current_user.sub
+    )
+    for id_ in body.ids:
+        await audit_repo.log(
+            action=AuditAction.RESERVE,
+            resource_type=ResourceType.IP_RECORD,
+            username=current_user.sub,
+            user_role=current_user.role.value,
+            client_ip=_get_client_ip(request),
+            resource_id=id_,
+            detail="Bulk reserve",
+        )
+    return {"modified": count}
+
+
+@router.post("/bulk/release")
+async def bulk_release(
+    request: Request,
+    body: BulkActionRequest,
+    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+) -> dict:
+    """Release multiple IP records by ID."""
+    from app.models.audit_log import AuditAction, ResourceType
+
+    db = get_database()
+    ip_repo = IPRecordRepository(db["ip_records"])
+    audit_repo = AuditLogRepository(db["audit_logs"])
+    count = await ip_repo.bulk_update_status(
+        body.ids, IPStatus.FREE, current_user.sub
+    )
+    for id_ in body.ids:
+        await audit_repo.log(
+            action=AuditAction.RELEASE,
+            resource_type=ResourceType.IP_RECORD,
+            username=current_user.sub,
+            user_role=current_user.role.value,
+            client_ip=_get_client_ip(request),
+            resource_id=id_,
+            detail="Bulk release",
+        )
+    return {"modified": count}
+
+
+@router.post("/bulk/update")
+async def bulk_update(
+    request: Request,
+    body: BulkUpdateRequest,
+    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+) -> dict:
+    """Update environment, owner, or os_type for multiple IP records."""
+    from app.models.audit_log import AuditAction, ResourceType
+
+    db = get_database()
+    ip_repo = IPRecordRepository(db["ip_records"])
+    audit_repo = AuditLogRepository(db["audit_logs"])
+    fields: dict = {}
+    if body.environment is not None:
+        fields["environment"] = body.environment.value
+    if body.owner is not None:
+        fields["owner"] = body.owner
+    if body.os_type is not None:
+        fields["os_type"] = body.os_type.value
+
+    count = await ip_repo.bulk_update_fields(body.ids, fields, current_user.sub)
+    for id_ in body.ids:
+        await audit_repo.log(
+            action=AuditAction.UPDATE,
+            resource_type=ResourceType.IP_RECORD,
+            username=current_user.sub,
+            user_role=current_user.role.value,
+            client_ip=_get_client_ip(request),
+            resource_id=id_,
+            after=fields,
+            detail="Bulk update",
+        )
+    return {"modified": count}
 
 
 # IMPORTANT: /by-ip/{ip_address} must be defined BEFORE /{id} to avoid route shadowing

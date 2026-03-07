@@ -35,15 +35,9 @@ import { subnetsApi } from '../../api/subnets';
 import CreateSubnetModal from './CreateSubnetModal';
 import type { SubnetDetail } from '../../types/subnet';
 import type { OSType, Environment } from '../../types/ipRecord';
+import { ENV_OPTIONS, ENV_COLOR } from '../../constants/environments';
 
 const OS_OPTIONS: OSType[] = ['AIX', 'Linux', 'Windows', 'macOS', 'OpenShift', 'Unknown'];
-const ENV_OPTIONS: Environment[] = ['Production', 'Test', 'Development'];
-
-const ENV_COLOR: Record<Environment, string> = {
-  Production: 'red',
-  Test: 'orange',
-  Development: 'cyan',
-};
 
 const MODE_ICON: Record<ScanMode, React.ReactNode> = {
   quick: <ThunderboltOutlined />,
