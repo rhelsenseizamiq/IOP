@@ -13,7 +13,6 @@ import {
   Tag,
   Tooltip,
   Progress,
-  Badge,
 } from 'antd';
 import {
   GlobalOutlined,
@@ -37,8 +36,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  RadialBarChart,
-  RadialBar,
 } from 'recharts';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -183,17 +180,10 @@ const DashboardPage: React.FC = () => {
     .filter(([, v]) => v > 0)
     .map(([name, value]) => ({ name, value }));
 
-  // IPv4 vs IPv6 — subnets
-  const versionSubnetData = [
-    { name: 'IPv4 Subnets', value: stats.subnet_v4_count, fill: '#1677ff' },
-    { name: 'IPv6 Subnets', value: stats.subnet_v6_count, fill: '#722ed1' },
-  ].filter((d) => d.value > 0);
-
-  // Overall utilization for radial gauge
+  // Overall utilization
   const totalIPs = stats.total_ips;
   const inUse = stats.status_breakdown['In Use'] ?? 0;
   const overallUtilPct = totalIPs > 0 ? Math.round((inUse / totalIPs) * 100) : 0;
-  const radialData = [{ name: 'Utilization', value: overallUtilPct, fill: utilizationColor(overallUtilPct) }];
 
   // Environment bar data
   const envBarData = Object.entries(stats.environment_breakdown)
@@ -347,97 +337,81 @@ const DashboardPage: React.FC = () => {
 
         {/* IPv4 / IPv6 breakdown */}
         <Col xs={24} sm={24} lg={8}>
-          <Card title="IPv4 vs IPv6" style={{ height: 280 }}>
-            <div style={{ marginBottom: 12 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>Subnets</Typography.Text>
-              <ResponsiveContainer width="100%" height={80}>
-                <PieChart>
-                  <Pie
-                    data={versionSubnetData.length > 0 ? versionSubnetData : [{ name: 'No subnets', value: 1, fill: '#f0f0f0' }]}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={22}
-                    outerRadius={36}
-                    paddingAngle={2}
-                    dataKey="value"
-                  >
-                    {(versionSubnetData.length > 0 ? versionSubnetData : [{ name: 'No subnets', value: 1, fill: '#f0f0f0' }]).map((entry) => (
-                      <Cell key={entry.name} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <ReTooltip formatter={(value, name) => [`${value}`, name]} />
-                  <Legend iconSize={8} formatter={(v) => <span style={{ fontSize: 11 }}>{v}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>IP Records</Typography.Text>
-              <Row gutter={8} style={{ marginTop: 4 }}>
-                <Col span={12}>
-                  <div style={{ textAlign: 'center', padding: '6px 8px', background: '#e6f4ff', borderRadius: 6 }}>
-                    <div style={{ fontSize: 18, fontWeight: 600, color: '#1677ff' }}>{stats.ip_v4_count}</div>
-                    <div style={{ fontSize: 11, color: '#1677ff' }}>IPv4</div>
-                  </div>
-                </Col>
-                <Col span={12}>
-                  <div style={{ textAlign: 'center', padding: '6px 8px', background: '#f9f0ff', borderRadius: 6 }}>
-                    <div style={{ fontSize: 18, fontWeight: 600, color: '#722ed1' }}>{stats.ip_v6_count}</div>
-                    <div style={{ fontSize: 11, color: '#722ed1' }}>IPv6</div>
-                  </div>
-                </Col>
-              </Row>
-            </div>
+          <Card title="IPv4 vs IPv6">
+            <Row gutter={[8, 8]}>
+              <Col span={12}>
+                <div style={{ background: '#e6f4ff', borderRadius: 8, padding: '12px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: 1.2 }}>{stats.subnet_v4_count}</div>
+                  <div style={{ fontSize: 11, color: '#1677ff', marginTop: 2 }}>IPv4 Subnets</div>
+                </div>
+              </Col>
+              <Col span={12}>
+                <div style={{ background: '#f9f0ff', borderRadius: 8, padding: '12px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#722ed1', lineHeight: 1.2 }}>{stats.subnet_v6_count}</div>
+                  <div style={{ fontSize: 11, color: '#722ed1', marginTop: 2 }}>IPv6 Subnets</div>
+                </div>
+              </Col>
+              <Col span={12}>
+                <div style={{ background: '#e6f4ff', borderRadius: 8, padding: '12px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#1677ff', lineHeight: 1.2 }}>{stats.ip_v4_count}</div>
+                  <div style={{ fontSize: 11, color: '#1677ff', marginTop: 2 }}>IPv4 Records</div>
+                </div>
+              </Col>
+              <Col span={12}>
+                <div style={{ background: '#f9f0ff', borderRadius: 8, padding: '12px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#722ed1', lineHeight: 1.2 }}>{stats.ip_v6_count}</div>
+                  <div style={{ fontSize: 11, color: '#722ed1', marginTop: 2 }}>IPv6 Records</div>
+                </div>
+              </Col>
+            </Row>
+            {/* Split bar */}
+            {(stats.subnet_v4_count + stats.subnet_v6_count) > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden', height: 8 }}>
+                  <div style={{
+                    width: `${(stats.subnet_v4_count / (stats.subnet_v4_count + stats.subnet_v6_count)) * 100}%`,
+                    background: '#1677ff',
+                  }} />
+                  <div style={{ flex: 1, background: '#722ed1' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>IPv4</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>IPv6</Typography.Text>
+                </div>
+              </div>
+            )}
           </Card>
         </Col>
 
-        {/* Overall utilization radial gauge */}
+        {/* Overall utilization gauge — antd Progress */}
         <Col xs={24} sm={24} lg={8}>
-          <Card title="Overall IP Utilization" style={{ height: 280 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <ResponsiveContainer width="100%" height={160}>
-                <RadialBarChart
-                  cx="50%"
-                  cy="80%"
-                  innerRadius="60%"
-                  outerRadius="100%"
-                  startAngle={180}
-                  endAngle={0}
-                  data={radialData}
-                  barSize={18}
-                >
-                  <RadialBar
-                    background={{ fill: '#f0f0f0' }}
-                    dataKey="value"
-                    cornerRadius={8}
-                  />
-                  <text
-                    x="50%"
-                    y="78%"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    style={{ fontSize: 28, fontWeight: 700, fill: utilizationColor(overallUtilPct) }}
-                  >
-                    {overallUtilPct}%
-                  </text>
-                  <text
-                    x="50%"
-                    y="93%"
-                    textAnchor="middle"
-                    style={{ fontSize: 11, fill: '#8c8c8c' }}
-                  >
-                    In Use / Total
-                  </text>
-                </RadialBarChart>
-              </ResponsiveContainer>
-              <Row gutter={16} style={{ width: '100%', marginTop: 4 }}>
+          <Card title="Overall IP Utilization">
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8 }}>
+              <Progress
+                type="dashboard"
+                percent={overallUtilPct}
+                size={160}
+                strokeColor={utilizationColor(overallUtilPct)}
+                strokeWidth={10}
+                format={(p) => (
+                  <span>
+                    <div style={{ fontSize: 26, fontWeight: 700, color: utilizationColor(overallUtilPct), lineHeight: 1.1 }}>{p}%</div>
+                    <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2 }}>In Use</div>
+                  </span>
+                )}
+              />
+              <Row gutter={8} style={{ width: '100%', marginTop: 12 }}>
                 <Col span={8} style={{ textAlign: 'center' }}>
-                  <Badge color="#52c41a" text={<span style={{ fontSize: 11 }}>Free<br />{stats.status_breakdown['Free'] ?? 0}</span>} />
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#52c41a' }}>{stats.status_breakdown['Free'] ?? 0}</div>
+                  <div style={{ fontSize: 11, color: '#8c8c8c' }}>Free</div>
                 </Col>
                 <Col span={8} style={{ textAlign: 'center' }}>
-                  <Badge color="#fa8c16" text={<span style={{ fontSize: 11 }}>Reserved<br />{stats.status_breakdown['Reserved'] ?? 0}</span>} />
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#fa8c16' }}>{stats.status_breakdown['Reserved'] ?? 0}</div>
+                  <div style={{ fontSize: 11, color: '#8c8c8c' }}>Reserved</div>
                 </Col>
                 <Col span={8} style={{ textAlign: 'center' }}>
-                  <Badge color="#1677ff" text={<span style={{ fontSize: 11 }}>In Use<br />{inUse}</span>} />
+                  <div style={{ fontSize: 16, fontWeight: 600, color: '#1677ff' }}>{inUse}</div>
+                  <div style={{ fontSize: 11, color: '#8c8c8c' }}>In Use</div>
                 </Col>
               </Row>
             </div>
