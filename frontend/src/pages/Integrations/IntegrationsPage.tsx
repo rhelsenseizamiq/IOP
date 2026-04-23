@@ -9,18 +9,21 @@ import {
   Tag,
   message,
 } from 'antd';
-import { CloudServerOutlined, BugOutlined } from '@ant-design/icons';
+import { BugOutlined, CloudServerOutlined, DatabaseOutlined, FireOutlined } from '@ant-design/icons';
 import { subnetsApi } from '../../api/subnets';
 import type { SubnetDetail } from '../../types/subnet';
 import VSphereImportDrawer from './VSphereImportDrawer';
+import Device42ImportDrawer from './Device42ImportDrawer';
+import PaloAltoImportDrawer from './PaloAltoImportDrawer';
 
 const IntegrationsPage: React.FC = () => {
   const [subnets, setSubnets] = useState<SubnetDetail[]>([]);
   const [vsphereOpen, setVsphereOpen] = useState(false);
+  const [device42Open, setDevice42Open] = useState(false);
+  const [paloaltoOpen, setPaloaltoOpen] = useState(false);
 
   const fetchSubnets = useCallback(async (): Promise<void> => {
     try {
-      // Load all subnets in batches (max page_size=200 per request)
       let page = 1;
       let all: SubnetDetail[] = [];
       let total = 1;
@@ -33,7 +36,7 @@ const IntegrationsPage: React.FC = () => {
       }
       setSubnets(all);
     } catch {
-      message.error('Failed to load subnets');
+      void message.error('Failed to load subnets');
     }
   }, []);
 
@@ -48,7 +51,7 @@ const IntegrationsPage: React.FC = () => {
       </Typography.Title>
 
       <Row gutter={[16, 16]}>
-        {/* vSphere Import */}
+        {/* vSphere */}
         <Col xs={24} sm={12} lg={8}>
           <Card
             hoverable
@@ -74,7 +77,61 @@ const IntegrationsPage: React.FC = () => {
           </Card>
         </Col>
 
-        {/* DNS Scan (info card — functionality is per-subnet in Subnets page) */}
+        {/* Device42 */}
+        <Col xs={24} sm={12} lg={8}>
+          <Card
+            hoverable
+            title={
+              <Space>
+                <DatabaseOutlined style={{ color: '#722ed1', fontSize: 20 }} />
+                <span>Device42</span>
+              </Space>
+            }
+            extra={<Tag color="purple">IP Import</Tag>}
+          >
+            <Typography.Paragraph type="secondary" style={{ minHeight: 60 }}>
+              Connect to Device42 DCIM and fetch all tracked IP addresses and
+              devices. Select entries to bulk-import as IPAM records.
+            </Typography.Paragraph>
+            <Button
+              type="primary"
+              icon={<DatabaseOutlined />}
+              style={{ background: '#722ed1', borderColor: '#722ed1' }}
+              onClick={() => setDevice42Open(true)}
+            >
+              Open Device42 Import
+            </Button>
+          </Card>
+        </Col>
+
+        {/* PaloAlto */}
+        <Col xs={24} sm={12} lg={8}>
+          <Card
+            hoverable
+            title={
+              <Space>
+                <FireOutlined style={{ color: '#f5222d', fontSize: 20 }} />
+                <span>PaloAlto Firewall</span>
+              </Space>
+            }
+            extra={<Tag color="red">FW Import</Tag>}
+          >
+            <Typography.Paragraph type="secondary" style={{ minHeight: 60 }}>
+              Connect to PaloAlto firewall and collect address objects, interface
+              IPs, and ARP table entries to import as IPAM records.
+            </Typography.Paragraph>
+            <Button
+              danger
+              type="primary"
+              icon={<FireOutlined />}
+              onClick={() => setPaloaltoOpen(true)}
+            >
+              Open PaloAlto Import
+            </Button>
+          </Card>
+        </Col>
+
+        {/* DNS Scan */}
         <Col xs={24} sm={12} lg={8}>
           <Card
             title={
@@ -91,10 +148,7 @@ const IntegrationsPage: React.FC = () => {
               <Typography.Text strong>Scan Conflicts</Typography.Text> button in
               the Subnets page.
             </Typography.Paragraph>
-            <Button
-              href="/subnets"
-              icon={<BugOutlined />}
-            >
+            <Button href="/subnets" icon={<BugOutlined />}>
               Go to Subnets
             </Button>
           </Card>
@@ -106,6 +160,22 @@ const IntegrationsPage: React.FC = () => {
         subnets={subnets}
         onClose={() => {
           setVsphereOpen(false);
+          void fetchSubnets();
+        }}
+      />
+      <Device42ImportDrawer
+        open={device42Open}
+        subnets={subnets}
+        onClose={() => {
+          setDevice42Open(false);
+          void fetchSubnets();
+        }}
+      />
+      <PaloAltoImportDrawer
+        open={paloaltoOpen}
+        subnets={subnets}
+        onClose={() => {
+          setPaloaltoOpen(false);
           void fetchSubnets();
         }}
       />

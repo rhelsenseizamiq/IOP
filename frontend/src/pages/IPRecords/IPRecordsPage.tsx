@@ -1,35 +1,42 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  Table,
+  Alert,
   Button,
-  Space,
-  Input,
-  Select,
-  Modal,
-  Form,
-  message,
-  Popconfirm,
-  Typography,
-  Row,
   Col,
+  Dropdown,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Table,
   Tag,
   Tooltip,
-  Alert,
+  Typography,
+  message,
+  notification,
 } from 'antd';
 const { useWatch } = Form;
 import {
-  PlusOutlined,
-  SearchOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  LockOutlined,
-  UnlockOutlined,
-  ReloadOutlined,
-  DownloadOutlined,
-  UploadOutlined,
-  HistoryOutlined,
   ApartmentOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  HistoryOutlined,
+  LockOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  UnlockOutlined,
+  UploadOutlined,
+  WifiOutlined,
 } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
 import type { TableRowSelection } from 'antd/es/table/interface';
 import { ipRecordsApi } from '../../api/ipRecords';
@@ -108,6 +115,9 @@ const IPRecordsPage: React.FC = () => {
 
   // History drawer
   const [historyRecord, setHistoryRecord] = useState<IPRecord | null>(null);
+
+  // Ping / availability check
+  const [pingingId, setPingingId] = useState<string | null>(null);
 
   // Row selection + bulk actions
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -324,6 +334,44 @@ const IPRecordsPage: React.FC = () => {
     [currentPage, filters, fetchRecords]
   );
 
+  const handlePing = useCallback(
+    async (record: IPRecord): Promise<void> => {
+      setPingingId(record.id);
+      try {
+        const res = await ipRecordsApi.ping(record.id, true);
+        const { reachable, latency_ms, method, status_updated, new_status } = res.data;
+        if (reachable) {
+          notification.success({
+            message: `${record.ip_address} is reachable`,
+            description: status_updated
+              ? `Status updated to ${new_status ?? 'In Use'} · Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ''}`
+              : `Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ''}`,
+            icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
+            duration: 5,
+          });
+        } else {
+          notification.warning({
+            message: `${record.ip_address} did not respond`,
+            description: status_updated
+              ? `Status updated to ${new_status ?? 'Free'} — IP is available for use`
+              : 'IP does not appear to be in use',
+            icon: <CloseCircleOutlined style={{ color: '#faad14' }} />,
+            duration: 6,
+          });
+        }
+        if (status_updated) {
+          void fetchRecords(currentPage, filters);
+        }
+      } catch (err: unknown) {
+        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+        void message.error(axiosErr.response?.data?.detail ?? 'Ping check failed');
+      } finally {
+        setPingingId(null);
+      }
+    },
+    [currentPage, filters, fetchRecords]
+  );
+
   const handleBulkReserve = useCallback(async (): Promise<void> => {
     const ids = selectedRowKeys as string[];
     try {
@@ -390,12 +438,34 @@ const IPRecordsPage: React.FC = () => {
       title: 'IP Address',
       dataIndex: 'ip_address',
       key: 'ip_address',
-      width: 140,
-      render: (v: string, record: IPRecord) => (
-        <Tooltip title={record.description ?? undefined}>
-          <Typography.Text copyable code>{v}</Typography.Text>
-        </Tooltip>
-      ),
+      width: 160,
+      render: (v: string, record: IPRecord) => {
+        const contextMenuItems: MenuProps['items'] = [
+          {
+            key: 'ping',
+            label: pingingId === record.id ? (
+              <Space><Spin size="small" /><span>Checking...</span></Space>
+            ) : (
+              <Space><WifiOutlined /><span>Check Availability</span></Space>
+            ),
+            disabled: pingingId === record.id,
+            onClick: () => void handlePing(record),
+          },
+        ];
+        return (
+          <Dropdown menu={{ items: contextMenuItems }} trigger={['contextMenu']}>
+            <Tooltip title={record.description ? `${record.description} — right-click for more` : 'Right-click for options'}>
+              <Typography.Text
+                copyable
+                code
+                style={{ cursor: 'context-menu' }}
+              >
+                {v}
+              </Typography.Text>
+            </Tooltip>
+          </Dropdown>
+        );
+      },
     },
     {
       title: 'Hostname',

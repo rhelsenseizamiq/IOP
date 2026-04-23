@@ -2,6 +2,7 @@ import apiClient from './client';
 import type { AuditLog } from '../types/auditLog';
 import type { IPRecord, IPRecordCreate, IPRecordUpdate, IPRecordFilters, OSType, Environment } from '../types/ipRecord';
 import type { PaginatedResponse } from '../types/common';
+import type { PingResult } from '../types/integrations';
 
 export interface BulkUpdateFields {
   environment?: Environment;
@@ -75,4 +76,7 @@ export const ipRecordsApi = {
 
   bulkUpdate: (ids: string[], fields: BulkUpdateFields) =>
     apiClient.post<{ modified: number }>('/ip-records/bulk/update', { ids, ...fields }),
+
+  ping: (id: string, autoUpdate = true) =>
+    apiClient.post<PingResult>(`/ip-records/${id}/ping`, { auto_update: autoUpdate }),
 };

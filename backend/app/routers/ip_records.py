@@ -1,11 +1,16 @@
+import asyncio
 import csv
 import io
 import logging
 import re
+import subprocess
+import time
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, File, Path, Query, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Path, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.core.database import get_database
 from app.dependencies.auth import require_role
@@ -88,7 +93,13 @@ async def list_ip_records(
     if owner:
         filter_["owner"] = {"$regex": re.escape(owner), "$options": "i"}
     if search:
-        filter_["$text"] = {"$search": search}
+        escaped = re.escape(search)
+        filter_["$or"] = [
+            {"ip_address": {"$regex": escaped, "$options": "i"}},
+            {"hostname": {"$regex": escaped, "$options": "i"}},
+            {"owner": {"$regex": escaped, "$options": "i"}},
+            {"description": {"$regex": escaped, "$options": "i"}},
+        ]
 
     service = _build_service()
     records, total = await service.list_records(
@@ -494,4 +505,186 @@ async def release_ip_record(
         username=current_user.sub,
         user_role=current_user.role.value,
         client_ip=_get_client_ip(request),
+    )
+
+
+# ── Ping / availability check ─────────────────────────────────────────────────
+
+# Broad port list: covers Linux, Windows, network devices, databases, web
+_PROBE_PORTS = [
+    22, 23, 25, 53, 80, 110, 135, 139, 143,
+    443, 445, 3306, 3389, 5432, 8080, 8443, 8888,
+]
+_PROBE_TIMEOUT = 0.8
+
+
+class PingResult(BaseModel):
+    ip_address: str
+    reachable: bool
+    method: str
+    latency_ms: Optional[float] = None
+    status_updated: bool = False
+    new_status: Optional[str] = None
+
+
+async def _tcp_probe(ip: str, port: int, timeout: float) -> bool:
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(ip, port),
+            timeout=timeout,
+        )
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _icmp_ping(ip: str) -> Optional[float]:
+    """ICMP ping via subprocess (requires iputils-ping in container)."""
+    try:
+        start = time.monotonic()
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", "2", ip],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return round((time.monotonic() - start) * 1000, 1)
+    except FileNotFoundError:
+        pass  # ping binary not available
+    except Exception:
+        pass
+    return None
+
+
+def _icmp_ping_raw(ip: str) -> Optional[float]:
+    """
+    ICMP echo via raw socket (requires CAP_NET_RAW).
+    Falls back gracefully if not permitted.
+    """
+    import os
+    import select
+    import socket as _socket
+    import struct
+
+    ICMP_ECHO = 8
+    try:
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_RAW, _socket.IPPROTO_ICMP)
+        sock.settimeout(2.0)
+    except PermissionError:
+        return None
+
+    try:
+        # Build minimal ICMP echo request
+        pid = os.getpid() & 0xFFFF
+        header = struct.pack("bbHHh", ICMP_ECHO, 0, 0, pid, 1)
+        data = b"ping"
+        chk = 0
+        for i in range(0, len(header + data), 2):
+            word = ((header + data)[i] << 8) + (header + data)[i + 1]
+            chk += word
+        chk = (chk >> 16) + (chk & 0xFFFF)
+        chk = ~chk & 0xFFFF
+        header = struct.pack("bbHHh", ICMP_ECHO, 0, _socket.htons(chk), pid, 1)
+
+        start = time.monotonic()
+        sock.sendto(header + data, (ip, 0))
+        readable, _, _ = select.select([sock], [], [], 2.0)
+        if readable:
+            return round((time.monotonic() - start) * 1000, 1)
+    except Exception:
+        pass
+    finally:
+        sock.close()
+    return None
+
+
+@router.post("/{id}/ping", response_model=PingResult)
+async def ping_ip_record(
+    id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
+    request: Request,
+    auto_update: bool = Body(default=True, embed=True),
+    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+) -> PingResult:
+    """
+    Check whether the IP address is reachable.
+    If not reachable and auto_update=true, set status to Free (Available).
+    """
+    from app.models.audit_log import AuditAction, ResourceType
+
+    service = _build_service()
+    record = await service.get_by_id(id)
+    ip = record.ip_address
+
+    reachable = False
+    latency_ms: Optional[float] = None
+    method = "tcp"
+
+    loop = asyncio.get_running_loop()
+
+    # Strategy 1: subprocess ping (iputils-ping installed in container)
+    icmp_latency = await loop.run_in_executor(None, _icmp_ping, ip)
+    if icmp_latency is not None:
+        reachable = True
+        latency_ms = icmp_latency
+        method = "icmp"
+
+    # Strategy 2: raw ICMP socket (requires CAP_NET_RAW)
+    if not reachable:
+        raw_latency = await loop.run_in_executor(None, _icmp_ping_raw, ip)
+        if raw_latency is not None:
+            reachable = True
+            latency_ms = raw_latency
+            method = "icmp-raw"
+
+    # Strategy 3: TCP connect to common ports in parallel
+    if not reachable:
+        start = time.monotonic()
+        tasks = [_tcp_probe(ip, p, _PROBE_TIMEOUT) for p in _PROBE_PORTS]
+        results = await asyncio.gather(*tasks)
+        if any(results):
+            reachable = True
+            latency_ms = round((time.monotonic() - start) * 1000, 1)
+            method = "tcp"
+
+    status_updated = False
+    new_status: Optional[str] = None
+
+    if auto_update:
+        target_status = "In Use" if reachable else "Free"
+        if record.status.value != target_status:
+            db = get_database()
+            ip_repo = IPRecordRepository(db["ip_records"])
+            audit_repo = AuditLogRepository(db["audit_logs"])
+            await ip_repo.update(id, {"status": target_status, "updated_by": current_user.sub})
+            detail_msg = (
+                "Auto-updated to In Use: IP responded to availability check"
+                if reachable
+                else "Auto-updated to Free: IP did not respond to availability check"
+            )
+            await audit_repo.log(
+                action=AuditAction.UPDATE,
+                resource_type=ResourceType.IP_RECORD,
+                username=current_user.sub,
+                user_role=current_user.role.value,
+                client_ip=_get_client_ip(request),
+                resource_id=id,
+                before={"status": record.status.value},
+                after={"status": target_status},
+                detail=detail_msg,
+            )
+            status_updated = True
+            new_status = target_status
+
+    return PingResult(
+        ip_address=ip,
+        reachable=reachable,
+        method=method,
+        latency_ms=latency_ms,
+        status_updated=status_updated,
+        new_status=new_status,
     )

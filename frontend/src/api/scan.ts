@@ -74,7 +74,27 @@ export interface ScanResult {
   duration_seconds: number;
 }
 
+export interface DiscoverScanRequest {
+  cidrs: string[];
+  mode: ScanMode;
+  save_inactive: boolean;
+  overwrite_status: boolean;
+}
+
+export interface DiscoverScanResult {
+  total_scanned: number;
+  total_discovered: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+  duration_seconds: number;
+}
+
 export const scanApi = {
   scan: (data: ScanRequest) =>
     apiClient.post<ScanResult>('/scan', data),
+
+  discover: (data: DiscoverScanRequest) =>
+    apiClient.post<DiscoverScanResult>('/scan/discover', data),
 };

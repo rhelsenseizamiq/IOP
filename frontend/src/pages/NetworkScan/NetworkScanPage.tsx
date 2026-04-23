@@ -1,35 +1,38 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  Table,
-  Button,
-  Select,
-  Input,
-  Space,
-  Typography,
-  Tag,
   Alert,
-  Spin,
-  Row,
-  Col,
-  message,
-  Divider,
+  Badge,
+  Button,
   Card,
   Checkbox,
+  Col,
+  Divider,
+  Input,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Switch,
+  Table,
+  Tabs,
+  Tag,
   Tooltip,
-  Badge,
+  Typography,
+  message,
 } from 'antd';
 import {
-  ScanOutlined,
-  ImportOutlined,
-  WifiOutlined,
-  WarningOutlined,
-  ThunderboltOutlined,
   AimOutlined,
   BugOutlined,
+  DatabaseOutlined,
+  ImportOutlined,
+  ScanOutlined,
+  ThunderboltOutlined,
+  WarningOutlined,
+  WifiOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { scanApi, SCAN_MODES } from '../../api/scan';
-import type { ScanMode, ScanModeInfo, DiscoveredHost } from '../../api/scan';
+import type { DiscoverScanResult, ScanMode, ScanModeInfo, DiscoveredHost } from '../../api/scan';
 import { ipRecordsApi } from '../../api/ipRecords';
 import { subnetsApi } from '../../api/subnets';
 import CreateSubnetModal from './CreateSubnetModal';
@@ -440,6 +443,46 @@ const NetworkScanPage: React.FC = () => {
 
   const selectedModeInfo = SCAN_MODES.find((m) => m.key === mode)!;
 
+  // ── Infrastructure Scan state ────────────────────────────────────────────────
+  const [infraCidrs, setInfraCidrs] = useState('');
+  const [infraMode, setInfraMode] = useState<ScanMode>('standard');
+  const [infraSaveInactive, setInfraSaveInactive] = useState(false);
+  const [infraOverwrite, setInfraOverwrite] = useState(false);
+  const [infraScanning, setInfraScanning] = useState(false);
+  const [infraResult, setInfraResult] = useState<DiscoverScanResult | null>(null);
+
+  const handleInfraScan = useCallback(async (): Promise<void> => {
+    const cidrs = infraCidrs
+      .split(/[\n,]+/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (cidrs.length === 0) {
+      void message.warning('Enter at least one CIDR');
+      return;
+    }
+    setInfraScanning(true);
+    setInfraResult(null);
+    try {
+      const res = await scanApi.discover({
+        cidrs,
+        mode: infraMode,
+        save_inactive: infraSaveInactive,
+        overwrite_status: infraOverwrite,
+      });
+      setInfraResult(res.data);
+      void message.success(
+        `Scan complete: ${res.data.created} new, ${res.data.updated} updated, ${res.data.skipped} skipped`
+      );
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+      void message.error(axiosErr.response?.data?.detail ?? 'Infrastructure scan failed');
+    } finally {
+      setInfraScanning(false);
+    }
+  }, [infraCidrs, infraMode, infraSaveInactive, infraOverwrite]);
+
+  const infraModeInfo = SCAN_MODES.find((m) => m.key === infraMode)!;
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -449,215 +492,337 @@ const NetworkScanPage: React.FC = () => {
         </Typography.Title>
       </div>
 
-      {/* Scan mode selector */}
-      <div style={{ marginBottom: 16 }}>
-        <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-          Scan Mode:
-        </Typography.Text>
-        <Row gutter={12}>
-          {SCAN_MODES.map((info) => (
-            <Col xs={24} sm={8} key={info.key}>
-              <ModeCard
-                info={info}
-                selected={mode === info.key}
-                onClick={() => {
-                  setMode(info.key);
-                  setRows([]);
-                  setScanInfo(null);
-                }}
-              />
-            </Col>
-          ))}
-        </Row>
-      </div>
-
-      {/* CIDR input + scan button */}
-      <Card size="small" style={{ marginBottom: 20 }}>
-        <Row gutter={12} align="middle">
-          <Col>
-            <Typography.Text strong>Network CIDR:</Typography.Text>
-          </Col>
-          <Col flex="auto">
-            <Input
-              value={cidr}
-              onChange={(e) => setCidr(e.target.value)}
-              onPressEnter={() => void handleScan()}
-              placeholder={`e.g. 192.168.1.0/24   (max ${selectedModeInfo.maxCidr} for ${selectedModeInfo.label} scan)`}
-              style={{ maxWidth: 340 }}
-              allowClear
-            />
-          </Col>
-          <Col>
-            <Button
-              type="primary"
-              icon={<ScanOutlined />}
-              loading={scanning}
-              disabled={!cidr.trim()}
-              onClick={() => void handleScan()}
-              style={{ background: selectedModeInfo.color, borderColor: selectedModeInfo.color }}
-            >
-              {scanning ? 'Scanning…' : `${selectedModeInfo.label} Scan`}
-            </Button>
-          </Col>
-        </Row>
-      </Card>
-
-      {/* Scanning spinner */}
-      {scanning && (
-        <div style={{ textAlign: 'center', padding: 48 }}>
-          <Spin size="large" />
-          <div style={{ marginTop: 12 }}>
-            <Typography.Text type="secondary">
-              Running <strong>{selectedModeInfo.label}</strong> scan on {cidr.trim()}…
+      <Tabs defaultActiveKey="discovery">
+        {/* ── Host Discovery tab ─────────────────────────────────────────── */}
+        <Tabs.TabPane
+          key="discovery"
+          tab={<Space><WifiOutlined />Host Discovery</Space>}
+        >
+          {/* Scan mode selector */}
+          <div style={{ marginBottom: 16 }}>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+              Scan Mode:
             </Typography.Text>
+            <Row gutter={12}>
+              {SCAN_MODES.map((info) => (
+                <Col xs={24} sm={8} key={info.key}>
+                  <ModeCard
+                    info={info}
+                    selected={mode === info.key}
+                    onClick={() => {
+                      setMode(info.key);
+                      setRows([]);
+                      setScanInfo(null);
+                    }}
+                  />
+                </Col>
+              ))}
+            </Row>
           </div>
-        </div>
-      )}
 
-      {/* Results */}
-      {!scanning && scanInfo && (
-        <>
-          <Alert
-            type={scanInfo.found > 0 ? 'success' : 'info'}
-            message={
-              <span>
-                <Tag color={selectedModeInfo.color}>{scanInfo.mode.toUpperCase()} SCAN</Tag>{' '}
-                <Typography.Text code>{scanInfo.cidr}</Typography.Text> — found{' '}
-                <strong>{scanInfo.found}</strong> live host{scanInfo.found !== 1 ? 's' : ''} out of{' '}
-                <strong>{scanInfo.total}</strong> in <strong>{scanInfo.duration}s</strong>.
-                {rows.filter((r) => r.subnet_id === null).length > 0 && (
-                  <span style={{ color: '#faad14', marginLeft: 8 }}>
-                    {rows.filter((r) => r.subnet_id === null).length} host(s) have no matching subnet.
-                  </span>
-                )}
-              </span>
-            }
-            style={{ marginBottom: 16 }}
-          />
+          {/* CIDR input + scan button */}
+          <Card size="small" style={{ marginBottom: 20 }}>
+            <Row gutter={12} align="middle">
+              <Col>
+                <Typography.Text strong>Network CIDR:</Typography.Text>
+              </Col>
+              <Col flex="auto">
+                <Input
+                  value={cidr}
+                  onChange={(e) => setCidr(e.target.value)}
+                  onPressEnter={() => void handleScan()}
+                  placeholder={`e.g. 192.168.1.0/24   (max ${selectedModeInfo.maxCidr} for ${selectedModeInfo.label} scan)`}
+                  style={{ maxWidth: 340 }}
+                  allowClear
+                />
+              </Col>
+              <Col>
+                <Button
+                  type="primary"
+                  icon={<ScanOutlined />}
+                  loading={scanning}
+                  disabled={!cidr.trim()}
+                  onClick={() => void handleScan()}
+                  style={{ background: selectedModeInfo.color, borderColor: selectedModeInfo.color }}
+                >
+                  {scanning ? 'Scanning…' : `${selectedModeInfo.label} Scan`}
+                </Button>
+              </Col>
+            </Row>
+          </Card>
 
-          {scanInfo.found > 0 && (
+          {scanning && (
+            <div style={{ textAlign: 'center', padding: 48 }}>
+              <Spin size="large" />
+              <div style={{ marginTop: 12 }}>
+                <Typography.Text type="secondary">
+                  Running <strong>{selectedModeInfo.label}</strong> scan on {cidr.trim()}…
+                </Typography.Text>
+              </div>
+            </div>
+          )}
+
+          {!scanning && scanInfo && (
             <>
-              {/* Import settings */}
-              <Card
-                size="small"
-                title="Import Settings"
-                style={{ marginBottom: 16 }}
-                extra={
-                  <Button
-                    type="primary"
-                    icon={<ImportOutlined />}
-                    loading={importing}
-                    disabled={importableCount === 0}
-                    onClick={() => void handleImport()}
-                  >
-                    Import Selected ({importableCount})
-                  </Button>
-                }
-              >
-                <Row gutter={16} align="middle">
-                  <Col>
-                    <Space>
-                      <Typography.Text strong>Environment:</Typography.Text>
-                      <Select<Environment>
-                        placeholder="Select (required)"
-                        style={{ width: 200 }}
-                        value={importEnv}
-                        onChange={setImportEnv}
-                      >
-                        {ENV_OPTIONS.map((e) => (
-                          <Select.Option key={e} value={e}>
-                            <Tag color={ENV_COLOR[e]}>{e}</Tag>
-                          </Select.Option>
-                        ))}
-                      </Select>
-                    </Space>
-                  </Col>
-                  <Col>
-                    <Space>
-                      <Typography.Text strong>Owner:</Typography.Text>
-                      <Input
-                        placeholder="Optional"
-                        style={{ width: 180 }}
-                        value={importOwner}
-                        onChange={(e) => setImportOwner(e.target.value)}
-                      />
-                    </Space>
-                  </Col>
-                </Row>
-              </Card>
-
-              {/* Groups */}
-              {groups.map((group, idx) => {
-                const isUnmatched = group.subnet === null;
-                const groupKeys = group.rows.map((r) => r.key);
-                const allSelected = groupKeys.length > 0 && groupKeys.every((k) => selectedKeys.includes(k));
-                const someSelected = groupKeys.some((k) => selectedKeys.includes(k));
-
-                return (
-                  <div key={group.subnet?.id ?? '__unmatched__'} style={{ marginBottom: 24 }}>
-                    <Divider orientation="left" style={{ marginTop: idx === 0 ? 0 : undefined }}>
-                      {isUnmatched ? (
-                        <Space>
-                          <WarningOutlined style={{ color: '#faad14' }} />
-                          <Typography.Text type="warning">
-                            No matching subnet — {group.rows.length} host{group.rows.length !== 1 ? 's' : ''}
-                            &nbsp;(create subnets first to import)
-                          </Typography.Text>
-                        </Space>
-                      ) : (
-                        <Space>
-                          <Typography.Text code>{group.subnet!.cidr}</Typography.Text>
-                          <Typography.Text strong>{group.subnet!.name}</Typography.Text>
-                          <Tag color="blue">{group.rows.length} host{group.rows.length !== 1 ? 's' : ''}</Tag>
-                        </Space>
-                      )}
-                    </Divider>
-
-                    {!isUnmatched && (
-                      <div style={{ marginBottom: 6 }}>
-                        <Checkbox
-                          indeterminate={someSelected && !allSelected}
-                          checked={allSelected}
-                          onChange={() => toggleGroupSelection(group.rows, allSelected)}
-                        >
-                          Select all in this subnet
-                        </Checkbox>
-                      </div>
+              <Alert
+                type={scanInfo.found > 0 ? 'success' : 'info'}
+                message={
+                  <span>
+                    <Tag color={selectedModeInfo.color}>{scanInfo.mode.toUpperCase()} SCAN</Tag>{' '}
+                    <Typography.Text code>{scanInfo.cidr}</Typography.Text> — found{' '}
+                    <strong>{scanInfo.found}</strong> live host{scanInfo.found !== 1 ? 's' : ''} out of{' '}
+                    <strong>{scanInfo.total}</strong> in <strong>{scanInfo.duration}s</strong>.
+                    {rows.filter((r) => r.subnet_id === null).length > 0 && (
+                      <span style={{ color: '#faad14', marginLeft: 8 }}>
+                        {rows.filter((r) => r.subnet_id === null).length} host(s) have no matching subnet.
+                      </span>
                     )}
+                  </span>
+                }
+                style={{ marginBottom: 16 }}
+              />
 
-                    <Table<ScanRow>
-                      dataSource={group.rows}
-                      columns={buildColumns(isUnmatched)}
-                      rowKey="key"
-                      size="small"
-                      pagination={false}
-                      scroll={{ x: mode === 'deep' ? 900 : 700 }}
-                      rowSelection={
-                        isUnmatched
-                          ? undefined
-                          : {
-                              selectedRowKeys: selectedKeys,
-                              onChange: (keys) =>
-                                setSelectedKeys((prev) => {
-                                  const others = prev.filter((k) => !groupKeys.includes(k));
-                                  return [...others, ...(keys as string[])];
-                                }),
-                            }
-                      }
-                    />
-                  </div>
-                );
-              })}
+              {scanInfo.found > 0 && (
+                <>
+                  <Card
+                    size="small"
+                    title="Import Settings"
+                    style={{ marginBottom: 16 }}
+                    extra={
+                      <Button
+                        type="primary"
+                        icon={<ImportOutlined />}
+                        loading={importing}
+                        disabled={importableCount === 0}
+                        onClick={() => void handleImport()}
+                      >
+                        Import Selected ({importableCount})
+                      </Button>
+                    }
+                  >
+                    <Row gutter={16} align="middle">
+                      <Col>
+                        <Space>
+                          <Typography.Text strong>Environment:</Typography.Text>
+                          <Select<Environment>
+                            placeholder="Select (required)"
+                            style={{ width: 200 }}
+                            value={importEnv}
+                            onChange={setImportEnv}
+                          >
+                            {ENV_OPTIONS.map((e) => (
+                              <Select.Option key={e} value={e}>
+                                <Tag color={ENV_COLOR[e]}>{e}</Tag>
+                              </Select.Option>
+                            ))}
+                          </Select>
+                        </Space>
+                      </Col>
+                      <Col>
+                        <Space>
+                          <Typography.Text strong>Owner:</Typography.Text>
+                          <Input
+                            placeholder="Optional"
+                            style={{ width: 180 }}
+                            value={importOwner}
+                            onChange={(e) => setImportOwner(e.target.value)}
+                          />
+                        </Space>
+                      </Col>
+                    </Row>
+                  </Card>
+
+                  {groups.map((group, idx) => {
+                    const isUnmatched = group.subnet === null;
+                    const groupKeys = group.rows.map((r) => r.key);
+                    const allSelected = groupKeys.length > 0 && groupKeys.every((k) => selectedKeys.includes(k));
+                    const someSelected = groupKeys.some((k) => selectedKeys.includes(k));
+                    return (
+                      <div key={group.subnet?.id ?? '__unmatched__'} style={{ marginBottom: 24 }}>
+                        <Divider orientation="left" style={{ marginTop: idx === 0 ? 0 : undefined }}>
+                          {isUnmatched ? (
+                            <Space>
+                              <WarningOutlined style={{ color: '#faad14' }} />
+                              <Typography.Text type="warning">
+                                No matching subnet — {group.rows.length} host{group.rows.length !== 1 ? 's' : ''}
+                                &nbsp;(create subnets first to import)
+                              </Typography.Text>
+                            </Space>
+                          ) : (
+                            <Space>
+                              <Typography.Text code>{group.subnet!.cidr}</Typography.Text>
+                              <Typography.Text strong>{group.subnet!.name}</Typography.Text>
+                              <Tag color="blue">{group.rows.length} host{group.rows.length !== 1 ? 's' : ''}</Tag>
+                            </Space>
+                          )}
+                        </Divider>
+                        {!isUnmatched && (
+                          <div style={{ marginBottom: 6 }}>
+                            <Checkbox
+                              indeterminate={someSelected && !allSelected}
+                              checked={allSelected}
+                              onChange={() => toggleGroupSelection(group.rows, allSelected)}
+                            >
+                              Select all in this subnet
+                            </Checkbox>
+                          </div>
+                        )}
+                        <Table<ScanRow>
+                          dataSource={group.rows}
+                          columns={buildColumns(isUnmatched)}
+                          rowKey="key"
+                          size="small"
+                          pagination={false}
+                          scroll={{ x: mode === 'deep' ? 900 : 700 }}
+                          rowSelection={
+                            isUnmatched
+                              ? undefined
+                              : {
+                                  selectedRowKeys: selectedKeys,
+                                  onChange: (keys) =>
+                                    setSelectedKeys((prev) => {
+                                      const others = prev.filter((k) => !groupKeys.includes(k));
+                                      return [...others, ...(keys as string[])];
+                                    }),
+                                }
+                          }
+                        />
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </>
           )}
-        </>
-      )}
-      <CreateSubnetModal
-        open={createModal.open}
-        suggestedCidr={createModal.suggestedCidr}
-        onCreated={handleSubnetCreated}
-        onCancel={() => setCreateModal({ open: false, forIp: '', suggestedCidr: '' })}
-      />
+
+          <CreateSubnetModal
+            open={createModal.open}
+            suggestedCidr={createModal.suggestedCidr}
+            onCreated={handleSubnetCreated}
+            onCancel={() => setCreateModal({ open: false, forIp: '', suggestedCidr: '' })}
+          />
+        </Tabs.TabPane>
+
+        {/* ── Infrastructure Scan tab ────────────────────────────────────── */}
+        <Tabs.TabPane
+          key="infrastructure"
+          tab={<Space><DatabaseOutlined />Infrastructure Scan</Space>}
+        >
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="Infrastructure Scan — saves results directly to the database"
+            description="Scan one or more CIDRs. Discovered (active) hosts are stored as 'In Use'. Optionally store non-responding IPs as 'Free' (Available). IPs without a matching subnet in your database are skipped."
+          />
+
+          {/* Mode selector */}
+          <Row gutter={12} style={{ marginBottom: 16 }}>
+            {SCAN_MODES.map((info) => (
+              <Col xs={24} sm={8} key={info.key}>
+                <ModeCard
+                  info={info}
+                  selected={infraMode === info.key}
+                  onClick={() => setInfraMode(info.key)}
+                />
+              </Col>
+            ))}
+          </Row>
+
+          {/* CIDR input + options */}
+          <Card size="small" style={{ marginBottom: 16 }}>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={14}>
+                <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
+                  CIDRs to scan (one per line or comma-separated):
+                </Typography.Text>
+                <Input.TextArea
+                  rows={5}
+                  value={infraCidrs}
+                  onChange={(e) => setInfraCidrs(e.target.value)}
+                  placeholder={'10.0.0.0/24\n192.168.1.0/24\n172.16.0.0/24'}
+                  style={{ fontFamily: 'monospace', fontSize: 13 }}
+                />
+              </Col>
+              <Col xs={24} md={10}>
+                <Space direction="vertical" size={16} style={{ width: '100%', paddingTop: 24 }}>
+                  <Space align="start">
+                    <Switch
+                      checked={infraSaveInactive}
+                      onChange={setInfraSaveInactive}
+                      size="small"
+                    />
+                    <Typography.Text>
+                      Store non-responding IPs as <Tag color="green">Free</Tag>
+                    </Typography.Text>
+                  </Space>
+                  <Space align="start">
+                    <Switch
+                      checked={infraOverwrite}
+                      onChange={setInfraOverwrite}
+                      size="small"
+                    />
+                    <Typography.Text>
+                      Overwrite existing record status
+                    </Typography.Text>
+                  </Space>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    IPs with no matching subnet are skipped. Add subnets first in the Subnets page.
+                  </Typography.Text>
+                </Space>
+              </Col>
+            </Row>
+          </Card>
+
+          <Button
+            type="primary"
+            icon={<ScanOutlined />}
+            loading={infraScanning}
+            disabled={!infraCidrs.trim()}
+            onClick={() => void handleInfraScan()}
+            style={{ background: infraModeInfo.color, borderColor: infraModeInfo.color, marginBottom: 16 }}
+          >
+            {infraScanning ? 'Scanning infrastructure…' : `Run ${infraModeInfo.label} Infrastructure Scan`}
+          </Button>
+
+          {infraScanning && (
+            <div style={{ textAlign: 'center', padding: 48 }}>
+              <Spin size="large" />
+              <div style={{ marginTop: 12 }}>
+                <Typography.Text type="secondary">Scanning and saving to database…</Typography.Text>
+              </div>
+            </div>
+          )}
+
+          {!infraScanning && infraResult && (
+            <Alert
+              type={infraResult.errors.length > 0 ? 'warning' : 'success'}
+              showIcon
+              message={
+                <Space wrap>
+                  <span>Done in <strong>{infraResult.duration_seconds}s</strong></span>
+                  <Tag color="blue">Scanned: {infraResult.total_scanned}</Tag>
+                  <Tag color="green">Active: {infraResult.total_discovered}</Tag>
+                  <Tag color="cyan">Created: {infraResult.created}</Tag>
+                  <Tag color="purple">Updated: {infraResult.updated}</Tag>
+                  <Tag color="default">Skipped: {infraResult.skipped}</Tag>
+                </Space>
+              }
+              description={
+                infraResult.errors.length > 0 ? (
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ cursor: 'pointer' }}>{infraResult.errors.length} error(s)</summary>
+                    <ul style={{ margin: '8px 0 0 0', paddingLeft: 16 }}>
+                      {infraResult.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}
+                      {infraResult.errors.length > 20 && <li>…and {infraResult.errors.length - 20} more</li>}
+                    </ul>
+                  </details>
+                ) : undefined
+              }
+            />
+          )}
+        </Tabs.TabPane>
+      </Tabs>
     </div>
   );
 };
