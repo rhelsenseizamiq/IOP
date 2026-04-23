@@ -1,6 +1,6 @@
 # IOP — Infrastructure Operations Platform
 
-A self-hosted IP Address Management portal with NetBox-style prefix hierarchy, dual-stack IPv4/IPv6, vSphere VM import, DNS conflict detection, Password Vault, and optional LDAP/AD authentication.
+A self-hosted IP Address Management portal with NetBox-style prefix hierarchy, dual-stack IPv4/IPv6, Device42 & PaloAlto integrations, real-time IP availability checks, infrastructure network scanning, Password Vault, and optional LDAP/AD authentication.
 
 ---
 
@@ -96,12 +96,22 @@ docker compose build frontend api && docker compose up -d frontend api
 - TCP-based host discovery for any CIDR; no ICMP/root needed
 - OS fingerprinting (Linux, Windows, macOS, OpenShift, AIX) + reverse DNS
 - Select discovered hosts → bulk-import as IP records
+- **Infrastructure scan** — scan multiple CIDRs at once; all discovered IPs saved directly to the database organized by subnet (create-new / overwrite-existing / skip modes)
 
-### IPv6, LDAP, Integrations & DNS Conflicts
+### IP Availability Check
+- Right-click any IP address in the IP Records table to probe it in real-time
+- 3-strategy detection: subprocess ping → raw ICMP socket → TCP connect (18 common ports)
+- Auto-updates record status: reachable → **In Use**, not reachable → **Free**
+
+### Integrations
+- **Device42 DCIM** — connect via REST API, discover IPs and devices, map to subnets, bulk-import as IP records
+- **PaloAlto Firewall** — PAN-OS XML API: collect address objects, interface IPs, and ARP table entries; import as IP records
+- **vSphere VM import** — connect to vCenter, select VMs, map to subnets, bulk-import as IP records
+- **DNS conflict detection** — per-subnet scan: FORWARD_MISMATCH, PTR_MISMATCH, NO_FORWARD, DUPLICATE_HOSTNAME
+
+### IPv6 & LDAP
 - **IPv6 dual-stack** — subnets and IP records support both IPv4 and IPv6; ip_version badge in table
 - **LDAP/AD authentication** — optional; first-login auto-provisions user as Viewer; local auth unchanged
-- **DNS conflict detection** — per-subnet scan: FORWARD_MISMATCH, PTR_MISMATCH, NO_FORWARD, DUPLICATE_HOSTNAME
-- **vSphere VM import** — connect to vCenter, select VMs, map to subnets, bulk-import as IP records
 - **Smart subnet creation** — when adding an IP that doesn't fit any subnet, inline prompt auto-suggests the CIDR and creates + selects it
 
 ### Password Vault
@@ -197,8 +207,14 @@ All endpoints prefixed `/api/v1`. Auth via `Authorization: Bearer <token>`.
 | RIRs | `/rirs` | GET (Viewer+), POST (Admin) |
 | IP Ranges | `/ip-ranges` | Full CRUD |
 | Network Scanner | `/scanner/scan` | POST, Operator+ |
+| Infrastructure Scan | `/scan/discover` | POST, Operator+ |
+| IP Availability Ping | `/ip-records/{id}/ping` | POST, Operator+ |
 | vSphere Discover | `/integrations/vsphere/discover` | POST, Operator+ |
 | vSphere Import | `/integrations/vsphere/import` | POST, Operator+ |
+| Device42 Discover | `/integrations/device42/discover` | POST, Operator+ |
+| Device42 Import | `/integrations/device42/import` | POST, Operator+ |
+| PaloAlto Discover | `/integrations/paloalto/discover` | POST, Operator+ |
+| PaloAlto Import | `/integrations/paloalto/import` | POST, Operator+ |
 | Dashboard Stats | `/stats` | GET, Viewer+ |
 | Cabinets | `/cabinets` | Admin CRUD; member list controls access |
 | Password Entries | `/passwords` | Viewer (own cabinets); reveal via `/{id}/reveal` |
@@ -218,15 +234,21 @@ iop/
 │       │   └── …                database, security, password, rate_limiter
 │       ├── models/              MongoDB document models
 │       ├── schemas/             Pydantic request/response schemas
+│       │   ├── device42.py      Device42 discover/import schemas
+│       │   ├── paloalto.py      PaloAlto discover/import schemas
 │       │   └── registration.py  RegisterRequest, ApproveRequest, RejectRequest
 │       ├── repositories/        BaseRepository[T] + domain repos
 │       ├── services/            Business logic (auth, user, subnet, vault, …)
+│       │   ├── device42_service.py   Device42 REST API client (httpx, Basic auth)
+│       │   └── paloalto_service.py   PAN-OS XML API client (keygen + ElementTree)
 │       └── routers/             FastAPI routers
 ├── frontend/
 │   └── src/
 │       ├── api/                 Axios API clients
 │       ├── components/          Shared UI (Sidebar, HelpDrawer, VaultLayout, …)
 │       ├── pages/
+│       │   ├── Integrations/    vSphere, Device42, PaloAlto import wizards
+│       │   ├── NetworkScan/     Host discovery + infrastructure scan
 │       │   ├── Registration/    Self-registration form + success card
 │       │   ├── Users/           UsersPage, PendingApprovalsPage, ApproveModal
 │       │   ├── Vault/           Cabinet browser + password entries
@@ -241,6 +263,18 @@ iop/
 ---
 
 ## Changelog
+
+### v6.0.0
+- **Device42 integration** — connect via REST API, discover device IPs with OS info, assign subnets, bulk-import as IPAM records
+- **PaloAlto integration** — PAN-OS XML API; collects address objects, interface IPs, and ARP table; 3-step import wizard with tabbed view
+- **IP availability check** — right-click any IP in the records table to probe it in real-time; 3-strategy detection (subprocess ping → raw ICMP socket → TCP connect across 18 ports); auto-updates status to **In Use** (reachable) or **Free** (unreachable)
+- **Infrastructure scan** — scan multiple CIDRs at once from the Network Scan page; all discovered IPs persisted directly to the database organized by matching subnet; supports create-new, overwrite-existing, and skip modes
+- Fix: `iputils-ping` added to backend Docker image; `NET_RAW` capability added for raw ICMP socket support
+- Fix: IP Records search now covers the `ip_address` field via `$or` regex (previously only hostname/owner/description via `$text` index)
+- Fix: NetworkScan CIDR textarea lost focus on every keystroke (removed inner component anti-pattern)
+
+### v5.0.0
+- **Asset Inventory (CMDB)** — track hardware assets alongside IP records with full lifecycle management
 
 ### v4.0.0
 - **Self-registration with admin approval** — public `/register` page; pending users cannot log in until an administrator approves them with a role and optional cabinet assignments; rejected users receive a clear error message on login; admin sidebar shows live pending count badge
