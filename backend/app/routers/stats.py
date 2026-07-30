@@ -16,7 +16,7 @@ from app.repositories.vrf_repository import VRFRepository
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])
 
-_VIEWER_PLUS = require_role("Viewer", "Operator", "Administrator")
+_VIEWER_PLUS = require_role("Viewer", "Operator", "Administrator", "SuperAdmin")
 
 
 @router.get("")

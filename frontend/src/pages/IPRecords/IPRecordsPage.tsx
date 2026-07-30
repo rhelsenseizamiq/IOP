@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -18,6 +19,7 @@ import {
   Typography,
   message,
   notification,
+  Progress,
 } from 'antd';
 const { useWatch } = Form;
 import {
@@ -35,6 +37,7 @@ import {
   UnlockOutlined,
   UploadOutlined,
   WifiOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
@@ -96,13 +99,22 @@ function suggestCIDR(ip: string): string {
 
 const IPRecordsPage: React.FC = () => {
   const { hasRole } = useAuth();
+  const [searchParams] = useSearchParams();
+  const initSubnetId = searchParams.get('subnet_id') ?? undefined;
+  const initStatus = searchParams.get('status') ?? undefined;
+  const initSearch = searchParams.get('search') ?? undefined;
+
   const [records, setRecords] = useState<IPRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [subnets, setSubnets] = useState<SubnetDetail[]>([]);
-  const [filters, setFilters] = useState<IPRecordFilters>({});
-  const [searchText, setSearchText] = useState('');
+  const [filters, setFilters] = useState<IPRecordFilters>({
+    subnet_id: initSubnetId,
+    status: initStatus as IPRecordFilters['status'],
+    search: initSearch,
+  });
+  const [searchText, setSearchText] = useState(initSearch ?? '');
 
   // Create/edit modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -118,6 +130,9 @@ const IPRecordsPage: React.FC = () => {
 
   // Ping / availability check
   const [pingingId, setPingingId] = useState<string | null>(null);
+  const [pingTarget, setPingTarget] = useState<string | null>(null);
+  const [pingProgress, setPingProgress] = useState(0);
+  const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Row selection + bulk actions
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -337,8 +352,18 @@ const IPRecordsPage: React.FC = () => {
   const handlePing = useCallback(
     async (record: IPRecord): Promise<void> => {
       setPingingId(record.id);
+      setPingTarget(record.ip_address);
+      setPingProgress(0);
+      if (pingTimerRef.current) clearInterval(pingTimerRef.current);
+      let prog = 0;
+      pingTimerRef.current = setInterval(() => {
+        prog = Math.min(92, prog + 8 + Math.random() * 7);
+        setPingProgress(Math.round(prog));
+      }, 220);
       try {
         const res = await ipRecordsApi.ping(record.id, true);
+        if (pingTimerRef.current) { clearInterval(pingTimerRef.current); pingTimerRef.current = null; }
+        setPingProgress(100);
         const { reachable, latency_ms, method, status_updated, new_status } = res.data;
         if (reachable) {
           notification.success({
@@ -363,10 +388,15 @@ const IPRecordsPage: React.FC = () => {
           void fetchRecords(currentPage, filters);
         }
       } catch (err: unknown) {
+        if (pingTimerRef.current) { clearInterval(pingTimerRef.current); pingTimerRef.current = null; }
         const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
         void message.error(axiosErr.response?.data?.detail ?? 'Ping check failed');
       } finally {
-        setPingingId(null);
+        setTimeout(() => {
+          setPingingId(null);
+          setPingTarget(null);
+          setPingProgress(0);
+        }, 900);
       }
     },
     [currentPage, filters, fetchRecords]
@@ -668,6 +698,7 @@ const IPRecordsPage: React.FC = () => {
           <Select
             placeholder="Subnet"
             allowClear
+            value={filters.subnet_id}
             style={{ width: '100%' }}
             showSearch
             optionFilterProp="children"
@@ -986,6 +1017,53 @@ const IPRecordsPage: React.FC = () => {
             <Input placeholder="Optional description" />
           </Form.Item>
         </Form>
+      </Modal>
+      {/* Ping / Availability Check Progress Modal */}
+      <Modal
+        open={!!pingTarget}
+        footer={null}
+        closable={false}
+        width={340}
+        centered
+        title={
+          <Space>
+            <WifiOutlined style={{ color: '#1677ff' }} />
+            <span>Checking Availability</span>
+          </Space>
+        }
+      >
+        <div style={{ textAlign: 'center', padding: '20px 0 8px' }}>
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
+            Probing{' '}
+            <Typography.Text code strong>
+              {pingTarget}
+            </Typography.Text>
+            …
+          </Typography.Text>
+          <Progress
+            type="circle"
+            percent={pingProgress}
+            status={pingProgress < 100 ? 'active' : 'success'}
+            strokeColor={pingProgress < 100 ? '#1677ff' : '#52c41a'}
+            size={90}
+            format={(pct) =>
+              pingProgress < 100 ? (
+                <span style={{ fontSize: 13 }}>
+                  <LoadingOutlined style={{ color: '#1677ff' }} />
+                  <br />
+                  <span style={{ fontSize: 11, color: '#888' }}>{pct}%</span>
+                </span>
+              ) : (
+                <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 28 }} />
+              )
+            }
+          />
+          <div style={{ marginTop: 16 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {pingProgress < 100 ? 'Sending ICMP / TCP probes…' : 'Done'}
+            </Typography.Text>
+          </div>
+        </div>
       </Modal>
     </div>
   );

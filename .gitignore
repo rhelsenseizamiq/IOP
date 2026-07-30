@@ -1,5 +1,7 @@
 # Environment — NEVER commit real credentials
 .env
+.env.*
+!.env.example
 *.env.local
 
 # Generated credentials — contains real passwords, NEVER commit
@@ -8,10 +10,17 @@ credentials.txt
 # Internal planning / session files
 PLAN.md
 
-# SSL certificates — managed outside repo
-nginx/ssl/*.pem
-nginx/ssl/*.key
-nginx/ssl/*.crt
+# Backup files — never intentional to commit
+*.bak
+*.bak.*
+
+# SSL certificates / private keys — managed outside repo, never committed
+nginx/ssl/
+*.pem
+*.key
+*.crt
+/_.abb-bank.az_2026.crt
+/_.abb-bank.az_2026_key
 
 # Python
 __pycache__/

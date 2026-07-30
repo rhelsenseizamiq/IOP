@@ -9,18 +9,20 @@ import {
   Typography,
   message,
 } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
 import { cabinetsApi } from '../../api/vault';
 import type { Cabinet } from '../../types/vault';
 import CabinetModal from './CabinetModal';
 
 interface Props {
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, name: string) => void;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
+  currentUsername: string | null;
 }
 
-const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin }) => {
+const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin, isSuperAdmin, currentUsername }) => {
   const [cabinets, setCabinets] = useState<Cabinet[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -77,12 +79,7 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin }) => {
         <Typography.Text strong>Cabinets</Typography.Text>
         {isAdmin && (
           <Tooltip title="New Cabinet">
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={openCreate}
-            />
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openCreate} />
           </Tooltip>
         )}
       </div>
@@ -93,13 +90,12 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin }) => {
         style={{ flex: 1, overflowY: 'auto' }}
         renderItem={(cabinet) => (
           <List.Item
-            onClick={() => onSelect(cabinet.id)}
+            onClick={() => onSelect(cabinet.id, cabinet.name)}
             style={{
               cursor: 'pointer',
               padding: '10px 16px',
               backgroundColor: selectedId === cabinet.id ? '#e6f4ff' : undefined,
-              borderLeft:
-                selectedId === cabinet.id ? '3px solid #1677ff' : '3px solid transparent',
+              borderLeft: selectedId === cabinet.id ? '3px solid #1677ff' : '3px solid transparent',
             }}
             actions={
               isAdmin
@@ -112,28 +108,33 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin }) => {
                         onClick={(e) => openEdit(cabinet, e)}
                       />
                     </Tooltip>,
-                    <Popconfirm
-                      key="delete"
-                      title={`Delete cabinet "${cabinet.name}" and all its entries?`}
-                      onConfirm={() => handleDelete(cabinet.id)}
-                      okText="Delete"
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Tooltip title="Delete">
-                        <Button
-                          type="text"
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </Tooltip>
-                    </Popconfirm>,
+                    ...(isSuperAdmin
+                      ? [
+                          <Popconfirm
+                            key="delete"
+                            title={`Delete cabinet "${cabinet.name}" and all its entries?`}
+                            onConfirm={() => handleDelete(cabinet.id)}
+                            okText="Delete"
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Tooltip title="Delete">
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </Tooltip>
+                          </Popconfirm>,
+                        ]
+                      : []),
                   ]
                 : []
             }
           >
             <Space>
+              <FolderOpenOutlined style={{ color: '#faad14' }} />
               <Typography.Text>{cabinet.name}</Typography.Text>
               <Badge count={cabinet.entry_count} showZero color="#1677ff" size="small" />
             </Space>
@@ -144,6 +145,8 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin }) => {
       <CabinetModal
         open={modalOpen}
         cabinet={editCabinet}
+        isSuperAdmin={isSuperAdmin}
+        currentUsername={currentUsername}
         onClose={() => setModalOpen(false)}
         onSaved={fetchCabinets}
       />

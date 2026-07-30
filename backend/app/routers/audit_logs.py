@@ -16,7 +16,7 @@ from app.schemas.audit_log import AuditLogResponse, PaginatedResponse
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
 
-_ADMIN_ONLY = require_role("Administrator")
+_ADMIN_ONLY = require_role("Administrator", "SuperAdmin")
 
 
 @router.get("", response_model=PaginatedResponse[AuditLogResponse])

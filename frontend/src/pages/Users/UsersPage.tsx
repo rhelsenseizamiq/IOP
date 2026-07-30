@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from "react";
 import {
   Table,
   Button,
@@ -13,7 +13,7 @@ import {
   message,
   Typography,
   Badge,
-} from 'antd';
+} from "antd";
 import {
   PlusOutlined,
   EditOutlined,
@@ -22,24 +22,26 @@ import {
   StopOutlined,
   ReloadOutlined,
   DeleteOutlined,
-} from '@ant-design/icons';
-import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
-import dayjs from 'dayjs';
-import { usersApi } from '../../api/users';
-import type { User, UserCreate, UserUpdate } from '../../types/user';
-import type { Role } from '../../types/auth';
+} from "@ant-design/icons";
+import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
+import dayjs from "dayjs";
+import { usersApi } from "../../api/users";
+import { useAuth } from "../../context/AuthContext";
+import type { User, UserCreate, UserUpdate } from "../../types/user";
+import type { Role } from "../../types/auth";
 
-const ROLE_OPTIONS: Role[] = ['Viewer', 'Operator', 'Administrator'];
+const ROLE_OPTIONS: Role[] = ["Viewer", "Operator", "Administrator"];
 
 const ROLE_COLOR: Record<Role, string> = {
-  Viewer: 'default',
-  Operator: 'blue',
-  Administrator: 'red',
+  Viewer: "default",
+  Operator: "blue",
+  Administrator: "red",
+  SuperAdmin: "purple",
 };
 
 const PAGE_SIZE = 20;
 
-type ModalMode = 'create' | 'edit' | 'reset-password' | null;
+type ModalMode = "create" | "edit" | "reset-password" | null;
 
 interface CreateFormValues extends UserCreate {
   confirm_password: string;
@@ -51,6 +53,8 @@ interface ResetPasswordFormValues {
 }
 
 const UsersPage: React.FC = () => {
+  const { hasRole } = useAuth();
+  const isSuperAdmin = hasRole("SuperAdmin");
   const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -71,9 +75,14 @@ const UsersPage: React.FC = () => {
       setUsers(res.data.items);
       setTotal(res.data.total);
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+      const axiosErr = err as {
+        response?: { data?: { detail?: string } };
+        message?: string;
+      };
       message.error(
-        axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Failed to load users'
+        axiosErr.response?.data?.detail ??
+          axiosErr.message ??
+          "Failed to load users",
       );
     } finally {
       setLoading(false);
@@ -84,14 +93,17 @@ const UsersPage: React.FC = () => {
     void fetchUsers(currentPage);
   }, [fetchUsers, currentPage]);
 
-  const handleTableChange = useCallback((pagination: TablePaginationConfig): void => {
-    setCurrentPage(pagination.current ?? 1);
-  }, []);
+  const handleTableChange = useCallback(
+    (pagination: TablePaginationConfig): void => {
+      setCurrentPage(pagination.current ?? 1);
+    },
+    [],
+  );
 
   const openCreate = useCallback((): void => {
     setSelectedUser(null);
     createForm.resetFields();
-    setModalMode('create');
+    setModalMode("create");
   }, [createForm]);
 
   const openEdit = useCallback(
@@ -102,18 +114,18 @@ const UsersPage: React.FC = () => {
         email: user.email ?? undefined,
         role: user.role,
       });
-      setModalMode('edit');
+      setModalMode("edit");
     },
-    [editForm]
+    [editForm],
   );
 
   const openResetPassword = useCallback(
     (user: User): void => {
       setSelectedUser(user);
       resetPwForm.resetFields();
-      setModalMode('reset-password');
+      setModalMode("reset-password");
     },
-    [resetPwForm]
+    [resetPwForm],
   );
 
   const handleCreate = useCallback(
@@ -133,15 +145,20 @@ const UsersPage: React.FC = () => {
         createForm.resetFields();
         void fetchUsers(currentPage);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
         message.error(
-          axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Failed to create user'
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Failed to create user",
         );
       } finally {
         setSubmitting(false);
       }
     },
-    [currentPage, fetchUsers, createForm]
+    [currentPage, fetchUsers, createForm],
   );
 
   const handleEdit = useCallback(
@@ -149,21 +166,29 @@ const UsersPage: React.FC = () => {
       if (!selectedUser) return;
       setSubmitting(true);
       try {
-        await usersApi.update(selectedUser.id, { ...values, email: values.email || undefined });
-        message.success('User updated');
+        await usersApi.update(selectedUser.id, {
+          ...values,
+          email: values.email || undefined,
+        });
+        message.success("User updated");
         setModalMode(null);
         editForm.resetFields();
         void fetchUsers(currentPage);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
         message.error(
-          axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Failed to update user'
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Failed to update user",
         );
       } finally {
         setSubmitting(false);
       }
     },
-    [selectedUser, currentPage, fetchUsers, editForm]
+    [selectedUser, currentPage, fetchUsers, editForm],
   );
 
   const handleResetPassword = useCallback(
@@ -171,20 +196,27 @@ const UsersPage: React.FC = () => {
       if (!selectedUser) return;
       setSubmitting(true);
       try {
-        await usersApi.resetPassword(selectedUser.id, { new_password: values.new_password });
+        await usersApi.resetPassword(selectedUser.id, {
+          new_password: values.new_password,
+        });
         message.success(`Password reset for "${selectedUser.username}"`);
         setModalMode(null);
         resetPwForm.resetFields();
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
         message.error(
-          axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Failed to reset password'
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Failed to reset password",
         );
       } finally {
         setSubmitting(false);
       }
     },
-    [selectedUser, resetPwForm]
+    [selectedUser, resetPwForm],
   );
 
   const handleToggleActive = useCallback(
@@ -199,13 +231,18 @@ const UsersPage: React.FC = () => {
         }
         void fetchUsers(currentPage);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
         message.error(
-          axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Operation failed'
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Operation failed",
         );
       }
     },
-    [currentPage, fetchUsers]
+    [currentPage, fetchUsers],
   );
 
   const handleDelete = useCallback(
@@ -215,45 +252,50 @@ const UsersPage: React.FC = () => {
         message.success(`User "${user.username}" permanently deleted`);
         void fetchUsers(currentPage);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
         message.error(
-          axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Delete failed'
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Delete failed",
         );
       }
     },
-    [currentPage, fetchUsers]
+    [currentPage, fetchUsers],
   );
 
   const columns: ColumnsType<User> = [
     {
-      title: 'Username',
-      dataIndex: 'username',
-      key: 'username',
+      title: "Username",
+      dataIndex: "username",
+      key: "username",
       render: (v: string) => <Typography.Text strong>{v}</Typography.Text>,
     },
     {
-      title: 'Full Name',
-      dataIndex: 'full_name',
-      key: 'full_name',
+      title: "Full Name",
+      dataIndex: "full_name",
+      key: "full_name",
     },
     {
-      title: 'Email',
-      dataIndex: 'email',
-      key: 'email',
+      title: "Email",
+      dataIndex: "email",
+      key: "email",
       render: (v: string | null) =>
         v ?? <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
-      title: 'Role',
-      dataIndex: 'role',
-      key: 'role',
+      title: "Role",
+      dataIndex: "role",
+      key: "role",
       width: 130,
       render: (v: Role) => <Tag color={ROLE_COLOR[v]}>{v}</Tag>,
     },
     {
-      title: 'Status',
-      dataIndex: 'is_active',
-      key: 'is_active',
+      title: "Status",
+      dataIndex: "is_active",
+      key: "is_active",
       width: 100,
       render: (v: boolean) =>
         v ? (
@@ -263,62 +305,80 @@ const UsersPage: React.FC = () => {
         ),
     },
     {
-      title: 'Last Login',
-      dataIndex: 'last_login',
-      key: 'last_login',
+      title: "Last Login",
+      dataIndex: "last_login",
+      key: "last_login",
       width: 170,
       render: (v: string | null) =>
         v ? (
-          dayjs(v).format('YYYY-MM-DD HH:mm')
+          dayjs(v).format("YYYY-MM-DD HH:mm")
         ) : (
           <Typography.Text type="secondary">Never</Typography.Text>
         ),
     },
     {
-      title: 'Actions',
-      key: 'actions',
+      title: "Actions",
+      key: "actions",
       width: 160,
       render: (_, record) => (
         <Space size={4}>
-          <Tooltip title="Edit">
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => openEdit(record)}
-            />
-          </Tooltip>
-          <Tooltip title="Reset Password">
-            <Button
-              size="small"
-              icon={<KeyOutlined />}
-              onClick={() => openResetPassword(record)}
-            />
-          </Tooltip>
-          <Popconfirm
-            title={record.is_active ? 'Deactivate this user?' : 'Activate this user?'}
-            onConfirm={() => void handleToggleActive(record)}
-            okText="Confirm"
-          >
-            <Tooltip title={record.is_active ? 'Deactivate' : 'Activate'}>
+          {isSuperAdmin && (
+            <Tooltip title="Edit">
               <Button
                 size="small"
-                icon={record.is_active ? <StopOutlined /> : <CheckCircleOutlined />}
-                danger={record.is_active}
-                type={record.is_active ? undefined : 'primary'}
+                icon={<EditOutlined />}
+                onClick={() => openEdit(record)}
               />
             </Tooltip>
-          </Popconfirm>
-          <Popconfirm
-            title={`Permanently delete "${record.username}"?`}
-            description="This cannot be undone. Audit logs for this user are kept."
-            onConfirm={() => void handleDelete(record)}
-            okText="Delete"
-            okButtonProps={{ danger: true }}
-          >
-            <Tooltip title="Delete permanently">
-              <Button size="small" icon={<DeleteOutlined />} danger />
+          )}
+          {isSuperAdmin && (
+            <Tooltip title="Reset Password">
+              <Button
+                size="small"
+                icon={<KeyOutlined />}
+                onClick={() => openResetPassword(record)}
+              />
             </Tooltip>
-          </Popconfirm>
+          )}
+          {isSuperAdmin && (
+            <Popconfirm
+              title={
+                record.is_active
+                  ? "Deactivate this user?"
+                  : "Activate this user?"
+              }
+              onConfirm={() => void handleToggleActive(record)}
+              okText="Confirm"
+            >
+              <Tooltip title={record.is_active ? "Deactivate" : "Activate"}>
+                <Button
+                  size="small"
+                  icon={
+                    record.is_active ? (
+                      <StopOutlined />
+                    ) : (
+                      <CheckCircleOutlined />
+                    )
+                  }
+                  danger={record.is_active}
+                  type={record.is_active ? undefined : "primary"}
+                />
+              </Tooltip>
+            </Popconfirm>
+          )}
+          {isSuperAdmin && (
+            <Popconfirm
+              title={`Permanently delete "${record.username}"?`}
+              description="This cannot be undone. Audit logs for this user are kept."
+              onConfirm={() => void handleDelete(record)}
+              okText="Delete"
+              okButtonProps={{ danger: true }}
+            >
+              <Tooltip title="Delete permanently">
+                <Button size="small" icon={<DeleteOutlined />} danger />
+              </Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -328,9 +388,9 @@ const UsersPage: React.FC = () => {
     <div>
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
           marginBottom: 16,
         }}
       >
@@ -370,7 +430,7 @@ const UsersPage: React.FC = () => {
       {/* Create User Modal */}
       <Modal
         title="Create User"
-        open={modalMode === 'create'}
+        open={modalMode === "create"}
         onCancel={() => {
           setModalMode(null);
           createForm.resetFields();
@@ -391,11 +451,11 @@ const UsersPage: React.FC = () => {
             label="Username"
             name="username"
             rules={[
-              { required: true, message: 'Username is required' },
-              { min: 3, message: 'At least 3 characters' },
+              { required: true, message: "Username is required" },
+              { min: 3, message: "At least 3 characters" },
               {
                 pattern: /^[a-zA-Z0-9._-]+$/,
-                message: 'Only letters, digits, dots, underscores, hyphens',
+                message: "Only letters, digits, dots, underscores, hyphens",
               },
             ]}
           >
@@ -404,21 +464,21 @@ const UsersPage: React.FC = () => {
           <Form.Item
             label="Full Name"
             name="full_name"
-            rules={[{ required: true, message: 'Full name is required' }]}
+            rules={[{ required: true, message: "Full name is required" }]}
           >
             <Input />
           </Form.Item>
           <Form.Item
             label="Email"
             name="email"
-            rules={[{ type: 'email', message: 'Enter a valid email' }]}
+            rules={[{ type: "email", message: "Enter a valid email" }]}
           >
             <Input />
           </Form.Item>
           <Form.Item
             label="Role"
             name="role"
-            rules={[{ required: true, message: 'Role is required' }]}
+            rules={[{ required: true, message: "Role is required" }]}
           >
             <Select>
               {ROLE_OPTIONS.map((r) => (
@@ -432,8 +492,8 @@ const UsersPage: React.FC = () => {
             label="Password"
             name="password"
             rules={[
-              { required: true, message: 'Password is required' },
-              { min: 8, message: 'At least 8 characters' },
+              { required: true, message: "Password is required" },
+              { min: 8, message: "At least 8 characters" },
             ]}
           >
             <Input.Password autoComplete="new-password" />
@@ -441,15 +501,15 @@ const UsersPage: React.FC = () => {
           <Form.Item
             label="Confirm Password"
             name="confirm_password"
-            dependencies={['password']}
+            dependencies={["password"]}
             rules={[
-              { required: true, message: 'Please confirm password' },
+              { required: true, message: "Please confirm password" },
               ({ getFieldValue }) => ({
                 validator(_, value) {
-                  if (!value || getFieldValue('password') === value) {
+                  if (!value || getFieldValue("password") === value) {
                     return Promise.resolve();
                   }
-                  return Promise.reject(new Error('Passwords do not match'));
+                  return Promise.reject(new Error("Passwords do not match"));
                 },
               }),
             ]}
@@ -461,8 +521,8 @@ const UsersPage: React.FC = () => {
 
       {/* Edit User Modal */}
       <Modal
-        title={`Edit User: ${selectedUser?.username ?? ''}`}
-        open={modalMode === 'edit'}
+        title={`Edit User: ${selectedUser?.username ?? ""}`}
+        open={modalMode === "edit"}
         onCancel={() => {
           setModalMode(null);
           editForm.resetFields();
@@ -482,14 +542,14 @@ const UsersPage: React.FC = () => {
           <Form.Item
             label="Full Name"
             name="full_name"
-            rules={[{ required: true, message: 'Full name is required' }]}
+            rules={[{ required: true, message: "Full name is required" }]}
           >
             <Input />
           </Form.Item>
           <Form.Item
             label="Email"
             name="email"
-            rules={[{ type: 'email', message: 'Enter a valid email' }]}
+            rules={[{ type: "email", message: "Enter a valid email" }]}
           >
             <Input />
           </Form.Item>
@@ -507,8 +567,8 @@ const UsersPage: React.FC = () => {
 
       {/* Reset Password Modal */}
       <Modal
-        title={`Reset Password: ${selectedUser?.username ?? ''}`}
-        open={modalMode === 'reset-password'}
+        title={`Reset Password: ${selectedUser?.username ?? ""}`}
+        open={modalMode === "reset-password"}
         onCancel={() => {
           setModalMode(null);
           resetPwForm.resetFields();
@@ -530,8 +590,8 @@ const UsersPage: React.FC = () => {
             label="New Password"
             name="new_password"
             rules={[
-              { required: true, message: 'Password is required' },
-              { min: 8, message: 'At least 8 characters' },
+              { required: true, message: "Password is required" },
+              { min: 8, message: "At least 8 characters" },
             ]}
           >
             <Input.Password autoComplete="new-password" />
@@ -539,15 +599,15 @@ const UsersPage: React.FC = () => {
           <Form.Item
             label="Confirm Password"
             name="confirm_password"
-            dependencies={['new_password']}
+            dependencies={["new_password"]}
             rules={[
-              { required: true, message: 'Please confirm password' },
+              { required: true, message: "Please confirm password" },
               ({ getFieldValue }) => ({
                 validator(_, value) {
-                  if (!value || getFieldValue('new_password') === value) {
+                  if (!value || getFieldValue("new_password") === value) {
                     return Promise.resolve();
                   }
-                  return Promise.reject(new Error('Passwords do not match'));
+                  return Promise.reject(new Error("Passwords do not match"));
                 },
               }),
             ]}

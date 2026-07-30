@@ -22,9 +22,9 @@ router = APIRouter(prefix="/subnets", tags=["subnets"])
 
 _OBJECTID_PATTERN = "^[0-9a-f]{24}$"
 
-_VIEWER_PLUS = require_role("Viewer", "Operator", "Administrator")
-_OPERATOR_PLUS = require_role("Operator", "Administrator")
-_ADMIN_ONLY = require_role("Administrator")
+_VIEWER_PLUS = require_role("Viewer", "Operator", "Administrator", "SuperAdmin")
+_OPERATOR_PLUS = require_role("Operator", "Administrator", "SuperAdmin")
+_ADMIN_ONLY = require_role("Administrator", "SuperAdmin")
 
 
 def _get_client_ip(request: Request) -> str:

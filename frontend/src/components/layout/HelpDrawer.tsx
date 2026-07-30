@@ -31,6 +31,16 @@ import {
   BugOutlined,
   ApiOutlined,
   SafetyCertificateOutlined,
+  WifiOutlined,
+  ThunderboltOutlined,
+  AimOutlined,
+  PlusCircleOutlined,
+  DesktopOutlined,
+  AuditOutlined,
+  LoadingOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 
 const { Text, Paragraph } = Typography;
@@ -49,6 +59,7 @@ const RoleBadge = ({ role }: { role: 'Viewer' | 'Operator' | 'Administrator' }) 
 };
 
 const ALL_SECTIONS: Section[] = [
+  // ─── Dashboard ────────────────────────────────────────────────────────────
   {
     key: 'dashboard',
     icon: <DashboardOutlined />,
@@ -63,7 +74,7 @@ const ALL_SECTIONS: Section[] = [
           <li><Text strong>IP Status pie chart</Text> — donut showing the split between Free, Reserved, and In Use addresses</li>
           <li><Text strong>IPs by Environment bar chart</Text> — how many IPs exist per environment (Production, Staging, etc.)</li>
           <li><Text strong>IPs by OS Type bar chart</Text> — breakdown by operating system</li>
-          <li><Text strong>Top Subnets table</Text> — the most-utilised subnets; subnets with an alert threshold configured are highlighted when exceeded</li>
+          <li><Text strong>Top Subnets table</Text> — the most-utilised subnets; subnets with an alert threshold are highlighted when exceeded</li>
           <li><Text strong>Recent Activity timeline</Text> — the last 5 changes made by any user</li>
         </ul>
         <Alert
@@ -75,6 +86,8 @@ const ALL_SECTIONS: Section[] = [
       </>
     ),
   },
+
+  // ─── IP Records ───────────────────────────────────────────────────────────
   {
     key: 'ip-records',
     icon: <GlobalOutlined />,
@@ -91,24 +104,41 @@ const ALL_SECTIONS: Section[] = [
           <li>Status: <Tag color="green">Free</Tag> <Tag color="orange">Reserved</Tag> <Tag color="blue">In Use</Tag></li>
           <li>Environment, owner, description</li>
         </ul>
+
         <Paragraph style={{ marginBottom: 4 }}><Text strong>Actions per row:</Text></Paragraph>
-        <ul style={{ paddingLeft: 20, marginBottom: 8 }}>
+        <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
           <li><LockOutlined /> <Text strong>Reserve</Text> — marks a Free IP as Reserved <RoleBadge role="Operator" /></li>
           <li><UnlockOutlined /> <Text strong>Release</Text> — sets a Reserved IP back to Free <RoleBadge role="Operator" /></li>
           <li><EditOutlined /> <Text strong>Edit</Text> — update hostname, OS, environment, owner <RoleBadge role="Operator" /></li>
           <li><HistoryOutlined /> <Text strong>History</Text> — view the full change log for this IP <RoleBadge role="Viewer" /></li>
         </ul>
+
+        <Paragraph style={{ marginBottom: 4 }}>
+          <WifiOutlined style={{ color: '#1677ff' }} /> <Text strong>Check Availability</Text> (right-click any IP address)
+        </Paragraph>
+        <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+          Right-clicking on any IP address in the table opens a context menu with <Text strong>Check Availability</Text>.
+          This sends live ICMP and TCP probes to the IP and shows a <LoadingOutlined /> progress modal while checking.
+          When done, a notification tells you:
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li><CheckCircleOutlined style={{ color: '#52c41a' }} /> <Text strong>Reachable</Text> — IP responded; method and latency are shown; status may be updated to <Tag color="blue">In Use</Tag></li>
+          <li><CloseCircleOutlined style={{ color: '#faad14' }} /> <Text strong>Did not respond</Text> — IP is silent; status may be updated to <Tag color="green">Free</Tag></li>
+        </ul>
+
         <Paragraph type="secondary" style={{ fontSize: 12 }}>
-          Use the search bar to find IPs by address, hostname, owner, or description. Filters for Status, OS, Environment, and Subnet are also available.
+          <LinkOutlined /> Navigating here from a subnet's <Text strong>"View all IP records"</Text> button automatically pre-selects that subnet in the filter bar.
+          Use Search, Status, OS, Environment, and Subnet filters to narrow the list.
         </Paragraph>
       </>
     ),
   },
+
+  // ─── Bulk Operations ──────────────────────────────────────────────────────
   {
     key: 'bulk',
     icon: <CheckSquareOutlined />,
     title: 'Bulk Operations',
-    badge: 'New',
     content: (
       <>
         <Paragraph>
@@ -129,11 +159,12 @@ const ALL_SECTIONS: Section[] = [
       </>
     ),
   },
+
+  // ─── Change History ───────────────────────────────────────────────────────
   {
     key: 'history',
     icon: <HistoryOutlined />,
     title: 'Change History',
-    badge: 'New',
     content: (
       <>
         <Paragraph>
@@ -148,6 +179,8 @@ const ALL_SECTIONS: Section[] = [
       </>
     ),
   },
+
+  // ─── Subnets ──────────────────────────────────────────────────────────────
   {
     key: 'subnets',
     icon: <ApartmentOutlined />,
@@ -161,11 +194,23 @@ const ALL_SECTIONS: Section[] = [
         <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
           <li><Text strong>Container subnets</Text> — have child prefixes; utilization = delegated address space</li>
           <li><Text strong>Leaf subnets</Text> — hold IP records directly; utilization = IP count</li>
-          <li><Tag color="blue">IPv4</Tag> <Tag color="purple">IPv6</Tag> — choose the IP version when creating a subnet; shown as a badge in the table</li>
+          <li><Tag color="blue">IPv4</Tag> <Tag color="purple">IPv6</Tag> — choose the IP version when creating a subnet</li>
         </ul>
+
+        <Paragraph style={{ marginBottom: 4 }}><Text strong>Subnet Detail Panel</Text></Paragraph>
+        <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+          Click any CIDR in the Subnets table to open the detail panel. From there you can:
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li>View IP utilization bar (used / reserved / free counts)</li>
+          <li>Manage <Text strong>IP Ranges</Text> (DHCP pools, server blocks, etc.)</li>
+          <li>Run a <BugOutlined /> <Text strong>Conflict Scan</Text> to detect DNS inconsistencies</li>
+          <li>Click <Text strong>"View all IP records in this subnet →"</Text> to jump directly to IP Records with that subnet pre-filtered</li>
+        </ul>
+
         <Paragraph style={{ marginBottom: 4 }}><Text strong>Alert Threshold</Text></Paragraph>
-        <Paragraph>
-          Set an optional utilization alert (1–100%) on any subnet. When the subnet's utilization reaches or exceeds the threshold, a <WarningOutlined style={{ color: '#ff4d4f' }} /> warning icon appears on the subnet row and a red banner is shown on the Dashboard.
+        <Paragraph type="secondary" style={{ fontSize: 12 }}>
+          Set an optional utilization alert (1–100%) on any subnet. When utilization reaches the threshold, a <WarningOutlined style={{ color: '#ff4d4f' }} /> warning icon appears on the subnet row and a red banner is shown on the Dashboard.
         </Paragraph>
         <Paragraph type="secondary" style={{ fontSize: 12 }}>
           Example hierarchy: <Text code>10.0.0.0/8</Text> → <Text code>10.10.0.0/16</Text> → <Text code>10.10.1.0/24</Text>
@@ -173,30 +218,126 @@ const ALL_SECTIONS: Section[] = [
       </>
     ),
   },
+
+  // ─── Network Scanner ──────────────────────────────────────────────────────
   {
     key: 'scanner',
     icon: <ScanOutlined />,
     title: 'Network Scanner',
+    badge: 'Updated',
     content: (
       <>
         <Paragraph>
-          The <Text strong>Network Scanner</Text> actively probes a subnet to discover live hosts and auto-populate IP records.
+          The <Text strong>Network Scanner</Text> actively probes IP ranges to discover live hosts. It has two independent tabs:
         </Paragraph>
-        <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
-          <li>Enter a CIDR range (e.g. <Text code>192.168.1.0/24</Text>) to scan</li>
-          <li>Detected hosts are shown with their reverse DNS hostname and detected OS</li>
-          <li>Select discovered hosts and click <Text strong>Create IP Records</Text> to import them into IPAM</li>
-          <li>OS detection identifies Linux, Windows, macOS, AIX, and OpenShift nodes</li>
+
+        {/* Scan modes */}
+        <Paragraph style={{ marginBottom: 4 }}><Text strong>Scan Modes</Text></Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li>
+            <ThunderboltOutlined style={{ color: '#52c41a' }} /> <Tag color="green">Quick</Tag>
+            — 4 ports · no OS detection · no hostname lookup · up to <Text code>/20</Text> (4 094 hosts)
+          </li>
+          <li>
+            <AimOutlined style={{ color: '#1677ff' }} /> <Tag color="blue">Standard</Tag>
+            — 14 ports · OS detection · hostname lookup · up to <Text code>/22</Text> (1 022 hosts)
+          </li>
+          <li>
+            <BugOutlined style={{ color: '#722ed1' }} /> <Tag color="purple">Deep</Tag>
+            — 35 ports · full OS detection · hostname lookup · up to <Text code>/24</Text> (254 hosts)
+          </li>
         </ul>
+        <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+          A <LoadingOutlined /> animated <Text strong>progress indicator</Text> shows completion percentage while scanning.
+          For Host Discovery it is a circular gauge; for Infrastructure Scan it is a line bar with the current % shown.
+        </Paragraph>
+
+        {/* Host Discovery tab */}
+        <Paragraph style={{ marginBottom: 4 }}><Text strong>Host Discovery tab</Text></Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li>Enter a single CIDR and click <Text strong>Scan</Text></li>
+          <li>Discovered hosts are grouped by subnet and shown in a table (IP, Hostname, OS Type, Open Ports for Deep mode)</li>
+          <li>Edit hostname or OS type inline before importing</li>
+          <li>Select rows and click <Text strong>Import Selected</Text> to create IP Records; choose the Environment first</li>
+          <li>Hosts with no matching subnet can be assigned to an existing subnet or create a new one on the spot</li>
+        </ul>
+
+        {/* Infrastructure Scan tab */}
+        <Paragraph style={{ marginBottom: 4 }}><Text strong>Infrastructure Scan tab</Text></Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li>Enter one or more CIDRs (one per line or comma-separated) to scan all at once</li>
+          <li>Active hosts are stored as <Tag color="blue">In Use</Tag> in the database automatically</li>
+          <li>Toggle <Text strong>"Store non-responding IPs as Free"</Text> to also record inactive addresses</li>
+          <li>Toggle <Text strong>"Overwrite existing record status"</Text> to update existing IP records based on the current scan result</li>
+          <li>
+            <PlusCircleOutlined style={{ color: '#52c41a' }} /> <Text strong>Auto-subnet creation</Text> — if a discovered IP has no matching subnet, the scanner automatically creates a <Text code>/24</Text> subnet named "Auto-created (scan)" in the Production environment and stores the IP under it. No manual subnet setup needed.
+          </li>
+        </ul>
+
+        <Paragraph style={{ marginBottom: 4 }}><Text strong>After an Infrastructure Scan:</Text></Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li><Tag color="blue">Scanned</Tag> total hosts probed</li>
+          <li><Tag color="green">Active</Tag> hosts that responded</li>
+          <li><Tag color="cyan">Created</Tag> new IP records added — with a full list of every created IP address (sortable, copyable)</li>
+          <li><Tag color="purple">Updated</Tag> existing records whose status changed (when overwrite is on) — with list</li>
+          <li><Tag color="orange">Auto-subnets</Tag> new /24 subnets created automatically — with list of CIDRs</li>
+          <li><Tag color="default">Skipped</Tag> IPs that could not be processed</li>
+        </ul>
+
         <Alert
           type="warning"
           showIcon
           style={{ fontSize: 12 }}
-          message="Only scan networks you are authorised to probe. Network scanning generates traffic that may be detected by security monitoring."
+          message="Only scan networks you are authorised to probe. Scanning generates traffic that may be detected by security monitoring."
         />
       </>
     ),
   },
+
+  // ─── Asset Inventory (CMDB) ───────────────────────────────────────────────
+  {
+    key: 'assets',
+    icon: <DesktopOutlined />,
+    title: 'Asset Inventory (CMDB)',
+    badge: 'New',
+    content: (
+      <>
+        <Paragraph>
+          The <Text strong>Asset Inventory</Text> (sidebar → Assets) is a lightweight CMDB — a register of physical and virtual infrastructure assets across your organisation.
+        </Paragraph>
+        <Paragraph style={{ marginBottom: 4 }}><Text strong>Asset Types:</Text></Paragraph>
+        <Space wrap style={{ marginBottom: 12 }}>
+          <Tag color="blue">Server</Tag>
+          <Tag color="cyan">Switch</Tag>
+          <Tag color="geekblue">Router</Tag>
+          <Tag color="red">Firewall</Tag>
+          <Tag color="purple">Load Balancer</Tag>
+          <Tag color="gold">Storage</Tag>
+          <Tag color="lime">Virtual Machine</Tag>
+          <Tag>Other</Tag>
+        </Space>
+        <Paragraph style={{ marginBottom: 4 }}><Text strong>Fields per asset:</Text></Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li><Text strong>Name</Text> — hostname or asset label</li>
+          <li><Text strong>Type</Text> — from the list above</li>
+          <li><Text strong>Status</Text>: <Tag color="success">Active</Tag> <Tag color="warning">Maintenance</Tag> <Tag>Inactive</Tag> <Tag color="error">Decommissioned</Tag></li>
+          <li><Text strong>IP Address</Text> — optional; free-text (not linked to an IP Record)</li>
+          <li><Text strong>Vendor / Model / Serial Number</Text></li>
+          <li><Text strong>Data Centre / Rack Location</Text></li>
+          <li><Text strong>Warranty Expiry</Text> — a <WarningOutlined style={{ color: '#faad14' }} /> warning icon appears when expiry is within 30 days</li>
+          <li><Text strong>Description</Text></li>
+        </ul>
+        <Alert
+          type="info"
+          showIcon
+          style={{ fontSize: 12 }}
+          message="Assets can be searched by name, vendor, model, serial number, or IP address. Filter by Type, Status, or Data Centre."
+        />
+      </>
+    ),
+  },
+
+  // ─── VRFs ─────────────────────────────────────────────────────────────────
   {
     key: 'vrfs',
     icon: <ClusterOutlined />,
@@ -220,6 +361,8 @@ const ALL_SECTIONS: Section[] = [
       </>
     ),
   },
+
+  // ─── Aggregates & RIRs ────────────────────────────────────────────────────
   {
     key: 'aggregates',
     icon: <DatabaseOutlined />,
@@ -244,6 +387,8 @@ const ALL_SECTIONS: Section[] = [
       </>
     ),
   },
+
+  // ─── IP Ranges ────────────────────────────────────────────────────────────
   {
     key: 'ip-ranges',
     icon: <NodeIndexOutlined />,
@@ -264,6 +409,8 @@ const ALL_SECTIONS: Section[] = [
       </>
     ),
   },
+
+  // ─── Environments ─────────────────────────────────────────────────────────
   {
     key: 'environments',
     icon: <EnvironmentOutlined />,
@@ -293,64 +440,96 @@ const ALL_SECTIONS: Section[] = [
           <li><Tag color="magenta">DR</Tag> disaster recovery standby environment</li>
           <li><Tag color="geekblue">Lab</Tag> experimental or proof-of-concept work</li>
         </ul>
+        <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
+          Auto-created subnets (from Infrastructure Scan) default to <Tag color="red">Production</Tag>. Edit them in the Subnets page to adjust.
+        </Paragraph>
       </>
     ),
   },
+
+  // ─── IPv6 ─────────────────────────────────────────────────────────────────
   {
     key: 'ipv6',
     icon: <GlobalOutlined />,
     title: 'IPv6 Dual-Stack',
-    badge: 'New',
     content: (
       <>
         <Paragraph>
-          The portal supports both <Text strong>IPv4 and IPv6</Text> subnets and IP records in the same system. Each subnet declares its version when created; IP records automatically inherit that version constraint.
+          The portal supports both <Text strong>IPv4 and IPv6</Text> subnets and IP records in the same system.
         </Paragraph>
         <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
-          <li>When creating a subnet, select <Tag color="blue">IPv4</Tag> or <Tag color="purple">IPv6</Tag> from the IP Version radio button</li>
+          <li>Select <Tag color="blue">IPv4</Tag> or <Tag color="purple">IPv6</Tag> when creating a subnet</li>
           <li>The CIDR must match the selected version — e.g. <Text code>2001:db8::/48</Text> requires IPv6</li>
-          <li>IPv6 IP records (e.g. <Text code>2001:db8::1</Text>) can only be added to IPv6 subnets</li>
-          <li>IPv4 and IPv6 subnets nest independently — no cross-version parent/child relationships</li>
+          <li>IPv6 IP records can only be added to IPv6 subnets</li>
+          <li>IPv4 and IPv6 subnets nest independently</li>
         </ul>
         <Alert
           type="info"
           showIcon
           style={{ fontSize: 12 }}
-          message="IPv6 addresses use colon-hex notation. The portal accepts both full and compressed forms (e.g. 2001:db8::1)."
+          message="The portal accepts both full and compressed IPv6 forms (e.g. 2001:db8::1)."
         />
       </>
     ),
   },
+
+  // ─── Integrations ─────────────────────────────────────────────────────────
   {
-    key: 'ldap',
-    icon: <SafetyCertificateOutlined />,
-    title: 'LDAP / AD Authentication',
-    badge: 'New',
+    key: 'integrations',
+    icon: <ApiOutlined />,
+    title: 'Integrations',
+    badge: 'Updated',
     content: (
       <>
         <Paragraph>
-          When enabled by an administrator, users can log in with their <Text strong>Active Directory or LDAP credentials</Text> — no separate IPAM password required.
+          The <Text strong>Integrations</Text> page connects the portal to external systems for bulk data import. Credentials are used only for the duration of the request and are never stored.
         </Paragraph>
-        <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
-          <li>LDAP login is configured server-side via environment variables (<Text code>LDAP_ENABLED</Text>, <Text code>LDAP_SERVER</Text>, etc.)</li>
-          <li>First-time LDAP login auto-provisions the user with the <Tag>Viewer</Tag> role</li>
-          <li>Administrators can promote LDAP users to Operator or Administrator via the Users page</li>
-          <li>LDAP users cannot use the "Change Password" feature — password management is handled by the directory</li>
+
+        <Paragraph style={{ marginBottom: 4 }}>
+          <CloudServerOutlined /> <Text strong>VMware vSphere</Text>
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li>Enter vCenter host, username, and password to discover all virtual machines</li>
+          <li>Each VM shows name, OS, power state, and all detected IPs</li>
+          <li>Select VMs, assign a target subnet and IP per VM, then click <Text strong>Import</Text></li>
+          <li>Duplicate IPs in the target subnet are skipped with a warning</li>
         </ul>
+
+        <Paragraph style={{ marginBottom: 4 }}>
+          <DatabaseOutlined /> <Text strong>Device42</Text> <Badge count="New" style={{ backgroundColor: '#52c41a', fontSize: 10, height: 16, lineHeight: '16px', padding: '0 5px' }} />
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li>Enter your Device42 URL, username, and password to pull IP inventory</li>
+          <li>Discovers all IP addresses with their subnet, device name, and MAC address</li>
+          <li>Preview results, select the records you want, then click <Text strong>Import</Text></li>
+          <li>Already-existing IPs in IPAM are skipped</li>
+        </ul>
+
+        <Paragraph style={{ marginBottom: 4 }}>
+          <SafetyCertificateOutlined /> <Text strong>Palo Alto Networks</Text> <Badge count="New" style={{ backgroundColor: '#52c41a', fontSize: 10, height: 16, lineHeight: '16px', padding: '0 5px' }} />
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li>Enter the firewall URL, username, password, and virtual system (vsys)</li>
+          <li>Discovers all ARP entries from the firewall — IP address, MAC, interface, and TTL</li>
+          <li>Preview, select, and import entries into IPAM</li>
+          <li>Useful for building an IP inventory from an existing network without active scanning</li>
+        </ul>
+
         <Alert
-          type="info"
+          type="warning"
           showIcon
           style={{ fontSize: 12 }}
-          message='When LDAP is active, an "LDAP/AD Authentication Enabled" badge is shown on the login page.'
+          message="All integrations require Operator role or higher."
         />
       </>
     ),
   },
+
+  // ─── DNS Conflict Detection ───────────────────────────────────────────────
   {
     key: 'dns-conflicts',
     icon: <BugOutlined />,
     title: 'DNS Conflict Detection',
-    badge: 'New',
     content: (
       <>
         <Paragraph>
@@ -370,39 +549,64 @@ const ALL_SECTIONS: Section[] = [
           type="warning"
           showIcon
           style={{ fontSize: 12 }}
-          message="Scanning requires Operator role or higher. Results are not stored — re-run the scan to refresh."
+          message="Results are not stored — re-run the scan to refresh."
         />
       </>
     ),
   },
+
+  // ─── LDAP ─────────────────────────────────────────────────────────────────
   {
-    key: 'integrations',
-    icon: <ApiOutlined />,
-    title: 'Integrations',
-    badge: 'New',
+    key: 'ldap',
+    icon: <SafetyCertificateOutlined />,
+    title: 'LDAP / AD Authentication',
     content: (
       <>
         <Paragraph>
-          The <Text strong>Integrations</Text> page (sidebar → Integrations) connects the portal to external systems so you can bulk-import data without manual entry.
+          When enabled by an administrator, users can log in with their <Text strong>Active Directory or LDAP credentials</Text> — no separate IPAM password required.
         </Paragraph>
-        <Paragraph style={{ marginBottom: 4 }}><Text strong><CloudServerOutlined /> VMware vSphere Import</Text></Paragraph>
         <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
-          <li>Enter your vCenter host, username, and password — credentials are used only for this request and never stored</li>
-          <li>The portal queries vCenter via the VMware API and lists all discovered virtual machines</li>
-          <li>Each VM shows its name, OS, power state, and all detected IP addresses</li>
-          <li>Select the VMs you want, choose a target IPAM subnet and IP address per VM, then click <Text strong>Import</Text></li>
-          <li>Duplicate IPs (same address already in the target subnet) are skipped with a warning</li>
-          <li>Results show: created / skipped / error counts and any per-VM error messages</li>
+          <li>LDAP login is configured server-side via environment variables</li>
+          <li>First-time LDAP login auto-provisions the user with the <Tag>Viewer</Tag> role</li>
+          <li>Administrators can promote LDAP users to Operator or Administrator</li>
+          <li>LDAP users cannot use the "Change Password" feature</li>
         </ul>
         <Alert
-          type="warning"
+          type="info"
           showIcon
           style={{ fontSize: 12 }}
-          message="vSphere import requires Operator role or higher."
+          message='When LDAP is active, an "LDAP/AD Authentication Enabled" badge is shown on the login page.'
         />
       </>
     ),
   },
+
+  // ─── Audit Log ────────────────────────────────────────────────────────────
+  {
+    key: 'audit-log',
+    icon: <AuditOutlined />,
+    title: 'Audit Log',
+    content: (
+      <>
+        <Paragraph>
+          The <Text strong>Audit Log</Text> page (sidebar → Audit Log) shows every write action taken by any user across the entire system — a full, tamper-evident activity record.
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
+          <li>Filter by username, action type, resource type, or date range</li>
+          <li>Each entry shows: timestamp, user, action, resource type, resource ID, and a human-readable summary</li>
+          <li>For updates, the full before/after field diff is available</li>
+        </ul>
+        <Alert
+          type="info"
+          showIcon
+          style={{ fontSize: 12 }}
+          message="Audit Log access requires Administrator role."
+        />
+      </>
+    ),
+  },
+
+  // ─── User Roles ───────────────────────────────────────────────────────────
   {
     key: 'roles',
     icon: <TeamOutlined />,
@@ -418,7 +622,7 @@ const ALL_SECTIONS: Section[] = [
             </Space>
             <br />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              Read-only access — browse subnets, IP records, VRFs, aggregates, and view history.
+              Read-only access — browse subnets, IP records, VRFs, aggregates, assets, and view history.
             </Text>
           </li>
           <li style={{ marginTop: 8 }}>
@@ -428,7 +632,9 @@ const ALL_SECTIONS: Section[] = [
             </Space>
             <br />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              All Viewer permissions plus: create/edit subnets, IP records, VRFs, aggregates, IP ranges; reserve/release IPs; bulk operations; run network scans; run DNS conflict detection; use the vSphere import integration.
+              All Viewer permissions plus: create/edit subnets, IP records, VRFs, aggregates, IP ranges, assets;
+              reserve/release IPs; bulk operations; run network scans; check IP availability; run DNS conflict detection;
+              use integrations (vSphere, Device42, Palo Alto).
             </Text>
           </li>
           <li style={{ marginTop: 8 }}>
@@ -438,7 +644,7 @@ const ALL_SECTIONS: Section[] = [
             </Space>
             <br />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              All Operator permissions plus: delete records, manage users, view all audit log events.
+              All Operator permissions plus: delete records, manage users, approve registrations, view all audit log events.
             </Text>
           </li>
         </ul>
@@ -505,7 +711,13 @@ const HelpDrawer: React.FC<Props> = ({ open, onClose }) => {
                 {section.badge && (
                   <Badge
                     count={section.badge}
-                    style={{ backgroundColor: '#52c41a', fontSize: 10, height: 16, lineHeight: '16px', padding: '0 5px' }}
+                    style={{
+                      backgroundColor: section.badge === 'New' ? '#52c41a' : section.badge === 'Updated' ? '#1677ff' : '#faad14',
+                      fontSize: 10,
+                      height: 16,
+                      lineHeight: '16px',
+                      padding: '0 5px',
+                    }}
                   />
                 )}
               </Space>

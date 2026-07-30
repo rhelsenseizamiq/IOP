@@ -1,4 +1,4 @@
-export type Role = 'Viewer' | 'Operator' | 'Administrator';
+export type Role = 'Viewer' | 'Operator' | 'Administrator' | 'SuperAdmin';
 
 export interface UserInToken {
   sub: string;

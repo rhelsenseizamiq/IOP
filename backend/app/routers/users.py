@@ -19,7 +19,8 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 _OBJECTID_PATTERN = "^[0-9a-f]{24}$"
 
-_ADMIN_ONLY = require_role("Administrator")
+_ADMIN_ONLY       = require_role("Administrator", "SuperAdmin")
+_SUPER_ADMIN_ONLY = require_role("SuperAdmin")
 
 
 def _get_client_ip(request: Request) -> str:
@@ -134,7 +135,7 @@ async def update_user(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
     request: Request,
     body: UserUpdate,
-    current_user: UserInToken = Depends(_ADMIN_ONLY),
+    current_user: UserInToken = Depends(_SUPER_ADMIN_ONLY),
 ) -> UserResponse:
     service = _build_service()
     return await service.update(
@@ -149,7 +150,7 @@ async def update_user(
 async def delete_user(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
     request: Request,
-    current_user: UserInToken = Depends(_ADMIN_ONLY),
+    current_user: UserInToken = Depends(_SUPER_ADMIN_ONLY),
 ) -> None:
     service = _build_service()
     await service.delete(
@@ -164,7 +165,7 @@ async def reset_user_password(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
     request: Request,
     body: UserResetPassword,
-    current_user: UserInToken = Depends(_ADMIN_ONLY),
+    current_user: UserInToken = Depends(_SUPER_ADMIN_ONLY),
 ) -> None:
     service = _build_service()
     await service.reset_password(
@@ -179,7 +180,7 @@ async def reset_user_password(
 async def deactivate_user_action(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
     request: Request,
-    current_user: UserInToken = Depends(_ADMIN_ONLY),
+    current_user: UserInToken = Depends(_SUPER_ADMIN_ONLY),
 ) -> None:
     service = _build_service()
     await service.deactivate(
@@ -193,7 +194,7 @@ async def deactivate_user_action(
 async def activate_user(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
     request: Request,
-    current_user: UserInToken = Depends(_ADMIN_ONLY),
+    current_user: UserInToken = Depends(_SUPER_ADMIN_ONLY),
 ) -> UserResponse:
     service = _build_service()
     return await service.activate(

@@ -12,7 +12,7 @@ from app.services.conflict_service import ConflictService
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/subnets", tags=["conflicts"])
 
-_OPERATOR = require_role("Operator", "Administrator")
+_OPERATOR = require_role("Operator", "Administrator", "SuperAdmin")
 
 
 @router.post("/{id}/scan-conflicts", response_model=ConflictReport)

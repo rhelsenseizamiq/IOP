@@ -3,6 +3,9 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+_CONNECT_TIMEOUT = 8   # seconds to establish TCP + LDAP bind
+_RECEIVE_TIMEOUT = 10  # seconds to wait for search results
+
 
 class LDAPService:
     """
@@ -23,7 +26,7 @@ class LDAPService:
             return None
 
         try:
-            from ldap3 import Server, Connection, ALL, SUBTREE, Tls
+            from ldap3 import Server, Connection, NONE, SUBTREE, Tls
             import ssl
 
             tls = None
@@ -35,20 +38,25 @@ class LDAPService:
                 port=self._settings.LDAP_PORT,
                 use_ssl=False,
                 tls=tls,
-                get_info=ALL,
+                get_info=NONE,           # skip schema fetch — avoids hang on AD
+                connect_timeout=_CONNECT_TIMEOUT,
             )
 
             # Service-account bind to search for the user DN
-            service_conn = None
             if self._settings.LDAP_BIND_DN:
                 service_conn = Connection(
                     server,
                     user=self._settings.LDAP_BIND_DN,
                     password=self._settings.LDAP_BIND_PASSWORD,
                     auto_bind=True,
+                    receive_timeout=_RECEIVE_TIMEOUT,
                 )
             else:
-                service_conn = Connection(server, auto_bind=True)
+                service_conn = Connection(
+                    server,
+                    auto_bind=True,
+                    receive_timeout=_RECEIVE_TIMEOUT,
+                )
 
             search_filter = self._settings.LDAP_USER_FILTER.format(username=username)
             service_conn.search(
@@ -59,7 +67,7 @@ class LDAPService:
             )
 
             if not service_conn.entries:
-                logger.debug("LDAP: user '%s' not found in directory", username)
+                logger.debug("LDAP: user %s not found in directory", username)
                 service_conn.unbind()
                 return None
 
@@ -68,32 +76,37 @@ class LDAPService:
             service_conn.unbind()
 
             # Bind as the user to verify password
-            user_conn = Connection(server, user=user_dn, password=password)
+            user_conn = Connection(
+                server,
+                user=user_dn,
+                password=password,
+                receive_timeout=_RECEIVE_TIMEOUT,
+            )
             if not user_conn.bind():
-                logger.debug("LDAP: bind failed for user '%s'", username)
+                logger.debug("LDAP: bind failed for user %s", username)
                 return None
             user_conn.unbind()
 
             # Extract display name: prefer displayName, fall back to cn
             full_name = username
-            if hasattr(entry, "displayName") and entry.displayName:
+            if hasattr(entry, 'displayName') and entry.displayName:
                 full_name = str(entry.displayName)
-            elif hasattr(entry, "cn") and entry.cn:
+            elif hasattr(entry, 'cn') and entry.cn:
                 full_name = str(entry.cn)
 
             email = None
-            if hasattr(entry, "mail") and entry.mail:
+            if hasattr(entry, 'mail') and entry.mail:
                 email = str(entry.mail)
 
             return {
-                "username": username,
-                "full_name": full_name,
-                "email": email,
+                'username': username,
+                'full_name': full_name,
+                'email': email,
             }
 
         except ImportError:
-            logger.error("ldap3 is not installed. Install it with: pip install ldap3>=2.9")
+            logger.error('ldap3 is not installed. Install it with: pip install ldap3>=2.9')
             return None
         except Exception as exc:
-            logger.warning("LDAP authentication error for user '%s': %s", username, exc)
+            logger.warning('LDAP authentication error for user %r: %s', username, exc)
             return None

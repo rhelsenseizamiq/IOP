@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   Alert,
   Badge,
@@ -11,11 +11,11 @@ import {
   Row,
   Select,
   Space,
-  Spin,
   Switch,
   Table,
   Tabs,
   Tag,
+  Progress,
   Tooltip,
   Typography,
   message,
@@ -29,6 +29,8 @@ import {
   ThunderboltOutlined,
   WarningOutlined,
   WifiOutlined,
+  PlusCircleOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { scanApi, SCAN_MODES } from '../../api/scan';
@@ -85,6 +87,37 @@ function findSubnetForIP(ip: string, subnets: SubnetDetail[]): SubnetDetail | nu
     }
   }
   return best;
+}
+
+
+function estimateHosts(cidr: string): number {
+  try {
+    const prefix = parseInt(cidr.split('/')[1], 10);
+    return Math.max(0, 2 ** (32 - prefix) - 2);
+  } catch { return 100; }
+}
+
+function estimateSecs(hosts: number, mode: string): number {
+  const profiles: Record<string, { c: number; t: number }> = {
+    quick: { c: 150, t: 0.22 },
+    standard: { c: 50, t: 0.55 },
+    deep: { c: 25, t: 1.1 },
+  };
+  const p = profiles[mode] ?? profiles['standard'];
+  return Math.max(2, Math.ceil(hosts / p.c) * p.t * 1.25);
+}
+
+function startProgressTimer(
+  estimatedMs: number,
+  setter: (v: number) => void,
+): ReturnType<typeof setInterval> {
+  const steps = 40;
+  const intervalMs = Math.max(100, estimatedMs / steps);
+  let current = 0;
+  return setInterval(() => {
+    current = Math.min(93, current + (88 / steps) + Math.random() * 2);
+    setter(Math.round(current));
+  }, intervalMs);
 }
 
 // ── Mode selector card ────────────────────────────────────────────────────────
@@ -145,6 +178,11 @@ const NetworkScanPage: React.FC = () => {
   const [importOwner, setImportOwner] = useState('');
   const [importing, setImporting] = useState(false);
 
+  const [scanProgress, setScanProgress] = useState(0);
+  const [infraProgress, setInfraProgress] = useState(0);
+  const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const infraTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Subnet creation modal for unmatched hosts
   const [createModal, setCreateModal] = useState<{ open: boolean; forIp: string; suggestedCidr: string }>({
     open: false,
@@ -203,6 +241,10 @@ const NetworkScanPage: React.FC = () => {
     setRows([]);
     setScanInfo(null);
     setSelectedKeys([]);
+    setScanProgress(0);
+    const _hosts = estimateHosts(trimmed);
+    if (scanTimerRef.current) clearInterval(scanTimerRef.current);
+    scanTimerRef.current = startProgressTimer(estimateSecs(_hosts, mode) * 1000, setScanProgress);
     try {
       const res = await scanApi.scan({ cidr: trimmed, mode });
       const { discovered, cidr: scanned, total_scanned, duration_seconds, mode: usedMode } = res.data;
@@ -227,6 +269,9 @@ const NetworkScanPage: React.FC = () => {
       const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
       message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Scan failed');
     } finally {
+      if (scanTimerRef.current) { clearInterval(scanTimerRef.current); scanTimerRef.current = null; }
+      setScanProgress(100);
+      setTimeout(() => setScanProgress(0), 1000);
       setScanning(false);
     }
   }, [cidr, mode, subnets]);
@@ -462,6 +507,10 @@ const NetworkScanPage: React.FC = () => {
     }
     setInfraScanning(true);
     setInfraResult(null);
+    setInfraProgress(0);
+    const _infraHosts = cidrs.reduce((acc, c) => acc + estimateHosts(c), 0);
+    if (infraTimerRef.current) clearInterval(infraTimerRef.current);
+    infraTimerRef.current = startProgressTimer(estimateSecs(_infraHosts, infraMode) * 1000, setInfraProgress);
     try {
       const res = await scanApi.discover({
         cidrs,
@@ -477,6 +526,9 @@ const NetworkScanPage: React.FC = () => {
       const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
       void message.error(axiosErr.response?.data?.detail ?? 'Infrastructure scan failed');
     } finally {
+      if (infraTimerRef.current) { clearInterval(infraTimerRef.current); infraTimerRef.current = null; }
+      setInfraProgress(100);
+      setTimeout(() => setInfraProgress(0), 1000);
       setInfraScanning(false);
     }
   }, [infraCidrs, infraMode, infraSaveInactive, infraOverwrite]);
@@ -552,11 +604,18 @@ const NetworkScanPage: React.FC = () => {
           </Card>
 
           {scanning && (
-            <div style={{ textAlign: 'center', padding: 48 }}>
-              <Spin size="large" />
-              <div style={{ marginTop: 12 }}>
+            <div style={{ textAlign: 'center', padding: '32px 0' }}>
+              <Progress
+                type="circle"
+                percent={scanProgress}
+                status={scanProgress < 100 ? 'active' : 'success'}
+                strokeColor={selectedModeInfo.color}
+                size={100}
+              />
+              <div style={{ marginTop: 16 }}>
                 <Typography.Text type="secondary">
-                  Running <strong>{selectedModeInfo.label}</strong> scan on {cidr.trim()}…
+                  Running <strong>{selectedModeInfo.label}</strong> scan on{' '}
+                  <Typography.Text code>{cidr.trim()}</Typography.Text>…
                 </Typography.Text>
               </div>
             </div>
@@ -786,40 +845,181 @@ const NetworkScanPage: React.FC = () => {
           </Button>
 
           {infraScanning && (
-            <div style={{ textAlign: 'center', padding: 48 }}>
-              <Spin size="large" />
-              <div style={{ marginTop: 12 }}>
-                <Typography.Text type="secondary">Scanning and saving to database…</Typography.Text>
-              </div>
+            <div style={{ padding: '8px 0 24px' }}>
+              <Progress
+                percent={infraProgress}
+                status="active"
+                strokeColor={infraModeInfo.color}
+                style={{ marginBottom: 8 }}
+              />
+              <Typography.Text type="secondary">
+                Scanning and saving to database… <strong>{infraProgress}%</strong>
+              </Typography.Text>
             </div>
           )}
 
           {!infraScanning && infraResult && (
-            <Alert
-              type={infraResult.errors.length > 0 ? 'warning' : 'success'}
-              showIcon
-              message={
-                <Space wrap>
-                  <span>Done in <strong>{infraResult.duration_seconds}s</strong></span>
-                  <Tag color="blue">Scanned: {infraResult.total_scanned}</Tag>
-                  <Tag color="green">Active: {infraResult.total_discovered}</Tag>
-                  <Tag color="cyan">Created: {infraResult.created}</Tag>
-                  <Tag color="purple">Updated: {infraResult.updated}</Tag>
-                  <Tag color="default">Skipped: {infraResult.skipped}</Tag>
-                </Space>
-              }
-              description={
-                infraResult.errors.length > 0 ? (
-                  <details style={{ marginTop: 8 }}>
-                    <summary style={{ cursor: 'pointer' }}>{infraResult.errors.length} error(s)</summary>
-                    <ul style={{ margin: '8px 0 0 0', paddingLeft: 16 }}>
-                      {infraResult.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}
-                      {infraResult.errors.length > 20 && <li>…and {infraResult.errors.length - 20} more</li>}
-                    </ul>
-                  </details>
-                ) : undefined
-              }
-            />
+            <>
+              <Alert
+                type={infraResult.errors.length > 0 ? 'warning' : 'success'}
+                showIcon
+                message={
+                  <Space wrap>
+                    <span>Done in <strong>{infraResult.duration_seconds}s</strong></span>
+                    <Tag color="blue">Scanned: {infraResult.total_scanned}</Tag>
+                    <Tag color="green">Active: {infraResult.total_discovered}</Tag>
+                    <Tag color="cyan">Created: {infraResult.created}</Tag>
+                    <Tag color="purple">Updated: {infraResult.updated}</Tag>
+                    <Tag color="default">Skipped: {infraResult.skipped}</Tag>
+                  {infraResult.auto_created_subnets > 0 && (
+                    <Tag color="orange">Auto-subnets: {infraResult.auto_created_subnets}</Tag>
+                  )}
+                  </Space>
+                }
+                description={
+                  infraResult.errors.length > 0 ? (
+                    <details style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: 'pointer' }}>{infraResult.errors.length} error(s)</summary>
+                      <ul style={{ margin: '8px 0 0 0', paddingLeft: 16 }}>
+                        {infraResult.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}
+                        {infraResult.errors.length > 20 && <li>…and {infraResult.errors.length - 20} more</li>}
+                      </ul>
+                    </details>
+                  ) : undefined
+                }
+              />
+              {infraResult.created_ips.length > 0 && (
+                <Card
+                  size="small"
+                  style={{ marginTop: 16 }}
+                  title={
+                    <Space>
+                      <PlusCircleOutlined style={{ color: '#52c41a' }} />
+                      <Typography.Text strong>
+                        New IPs Added ({infraResult.created_ips.length})
+                      </Typography.Text>
+                    </Space>
+                  }
+                >
+                  <Table
+                    dataSource={infraResult.created_ips.map((ip) => ({ ip, key: ip }))}
+                    columns={[
+                      {
+                        title: 'IP Address',
+                        dataIndex: 'ip',
+                        width: 160,
+                        render: (v: string) => (
+                          <Typography.Text code copyable>{v}</Typography.Text>
+                        ),
+                      },
+                      {
+                        title: 'Subnet',
+                        key: 'subnet',
+                        render: (_: unknown, row: { ip: string }) => {
+                          const matched = subnets.find((sub) => isIPInCIDR(row.ip, sub.cidr));
+                          return matched ? (
+                            <Space size={4}>
+                              <Typography.Text code>{matched.cidr}</Typography.Text>
+                              <Typography.Text type="secondary">{matched.name}</Typography.Text>
+                            </Space>
+                          ) : (
+                            <Typography.Text type="secondary">—</Typography.Text>
+                          );
+                        },
+                      },
+                    ]}
+                    size="small"
+                    pagination={{ pageSize: 10, hideOnSinglePage: true, showTotal: (t) => `${t} IPs` }}
+                    scroll={{ y: 300 }}
+                  />
+                </Card>
+              )}
+              {infraResult.updated_ips.length > 0 && (
+                <Card
+                  size="small"
+                  style={{ marginTop: 12 }}
+                  title={
+                    <Space>
+                      <DatabaseOutlined style={{ color: '#722ed1' }} />
+                      <Typography.Text strong>
+                        Updated IPs ({infraResult.updated_ips.length})
+                      </Typography.Text>
+                    </Space>
+                  }
+                >
+                  <Table
+                    dataSource={infraResult.updated_ips.map((ip) => ({ ip, key: ip }))}
+                    columns={[
+                      {
+                        title: 'IP Address',
+                        dataIndex: 'ip',
+                        width: 160,
+                        render: (v: string) => (
+                          <Typography.Text code copyable>{v}</Typography.Text>
+                        ),
+                      },
+                      {
+                        title: 'Subnet',
+                        key: 'subnet',
+                        render: (_: unknown, row: { ip: string }) => {
+                          const matched = subnets.find((sub) => isIPInCIDR(row.ip, sub.cidr));
+                          return matched ? (
+                            <Space size={4}>
+                              <Typography.Text code>{matched.cidr}</Typography.Text>
+                              <Typography.Text type="secondary">{matched.name}</Typography.Text>
+                            </Space>
+                          ) : (
+                            <Typography.Text type="secondary">—</Typography.Text>
+                          );
+                        },
+                      },
+                    ]}
+                    size="small"
+                    pagination={{ pageSize: 10, hideOnSinglePage: true, showTotal: (t) => `${t} IPs` }}
+                    scroll={{ y: 300 }}
+                  />
+                </Card>
+              )}
+              {infraResult.auto_created_subnet_cidrs.length > 0 && (
+                <Card
+                  size="small"
+                  style={{ marginTop: 12 }}
+                  title={
+                    <Space>
+                      <ApartmentOutlined style={{ color: '#faad14' }} />
+                      <Typography.Text strong>
+                        Auto-Created Subnets ({infraResult.auto_created_subnet_cidrs.length})
+                      </Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+                        — /24 subnets created automatically for unmatched IPs
+                      </Typography.Text>
+                    </Space>
+                  }
+                >
+                  <Table
+                    dataSource={infraResult.auto_created_subnet_cidrs.map((cidr) => ({ cidr, key: cidr }))}
+                    columns={[
+                      {
+                        title: 'CIDR',
+                        dataIndex: 'cidr',
+                        render: (v: string) => (
+                          <Typography.Text code copyable>{v}</Typography.Text>
+                        ),
+                      },
+                      {
+                        title: 'Name',
+                        key: 'name',
+                        render: () => (
+                          <Typography.Text type="secondary">Auto-created (scan)</Typography.Text>
+                        ),
+                      },
+                    ]}
+                    size="small"
+                    pagination={{ pageSize: 10, hideOnSinglePage: true }}
+                  />
+                </Card>
+              )}
+            </>
           )}
         </Tabs.TabPane>
       </Tabs>

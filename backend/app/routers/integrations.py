@@ -34,7 +34,7 @@ from app.services.vsphere_service import VsphereService
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
-_OPERATOR = require_role("Operator", "Administrator")
+_OPERATOR = require_role("Operator", "Administrator", "SuperAdmin")
 
 
 # ── vSphere ────────────────────────────────────────────────────────────────────

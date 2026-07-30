@@ -8,6 +8,7 @@ class Role(str, Enum):
     VIEWER = "Viewer"
     OPERATOR = "Operator"
     ADMINISTRATOR = "Administrator"
+    SUPER_ADMIN = "SuperAdmin"
 
 
 class User(BaseModel):
@@ -15,15 +16,15 @@ class User(BaseModel):
 
     id: Optional[str] = Field(default=None, alias="_id")
     username: str
-    password_hash: str  # NEVER included in response schemas; empty string for LDAP users
+    password_hash: str
     full_name: str
     email: Optional[str] = None
     role: Role
     is_active: bool = True
-    auth_type: str = "local"  # "local" or "ldap"
-    approval_status: str = "approved"  # "pending" | "approved" | "rejected"
-    registration_note: Optional[str] = None  # user's self-written reason, max 500 chars
-    rejection_reason: Optional[str] = None  # admin note on rejection, max 500 chars
+    auth_type: str = "local"
+    approval_status: str = "approved"
+    registration_note: Optional[str] = None
+    rejection_reason: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     created_by: str = "system"
@@ -31,7 +32,7 @@ class User(BaseModel):
 
 
 class UserInToken(BaseModel):
-    sub: str  # username
+    sub: str
     role: Role
     full_name: str
     jti: str

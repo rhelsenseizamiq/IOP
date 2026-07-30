@@ -2,7 +2,6 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from fastapi.responses import Response
 
 from app.config import get_settings
 from app.core.vault import decrypt_password, encrypt_password
@@ -21,11 +20,14 @@ from app.schemas.password_entry import (
 
 logger = logging.getLogger(__name__)
 
+_OPERATOR_ABOVE = {Role.OPERATOR.value, Role.ADMINISTRATOR.value, Role.SUPER_ADMIN.value}
+
 
 def _to_response(entry) -> PasswordEntryResponse:
     return PasswordEntryResponse(
         id=entry.id,
         cabinet_id=entry.cabinet_id,
+        folder_id=entry.folder_id,
         title=entry.title,
         username=entry.username,
         url=entry.url,
@@ -41,6 +43,7 @@ def _to_detail_response(entry) -> PasswordEntryDetailResponse:
     return PasswordEntryDetailResponse(
         id=entry.id,
         cabinet_id=entry.cabinet_id,
+        folder_id=entry.folder_id,
         title=entry.title,
         username=entry.username,
         url=entry.url,
@@ -53,25 +56,12 @@ def _to_detail_response(entry) -> PasswordEntryDetailResponse:
     )
 
 
-async def _assert_member(
-    cabinet_repo: CabinetRepository,
-    cabinet_id: str,
-    username: str,
-    role: str,
-) -> None:
-    """Raise 403 if the user is not a member of the cabinet.
-
-    NOTE: Even Administrators must be explicit members to access password entries.
-    Admin role only grants cabinet management (CRUD on cabinet objects).
-    """
+async def _assert_member(cabinet_repo, cabinet_id, username, role):
     cabinet = await cabinet_repo.find_by_id(cabinet_id)
     if cabinet is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cabinet not found")
     if username not in cabinet.member_usernames:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not a member of this cabinet",
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not a member of this cabinet")
 
 
 def _require_vault_key() -> str:
@@ -85,53 +75,31 @@ def _require_vault_key() -> str:
 
 
 class PasswordService:
-    def __init__(
-        self,
-        password_repo: PasswordRepository,
-        cabinet_repo: CabinetRepository,
-        audit_repo: AuditLogRepository,
-    ) -> None:
+    def __init__(self, password_repo, cabinet_repo, audit_repo) -> None:
         self._passwords = password_repo
         self._cabinets = cabinet_repo
         self._audit = audit_repo
 
-    async def list_entries(
-        self,
-        cabinet_id: str,
-        username: str,
-        role: str,
-        skip: int = 0,
-        limit: int = 50,
-    ) -> tuple[list[PasswordEntryResponse], int]:
+    async def list_entries(self, cabinet_id, username, role, skip=0, limit=50, folder_id=None):
         await _assert_member(self._cabinets, cabinet_id, username, role)
-        entries, total = await self._passwords.find_by_cabinet(cabinet_id, skip=skip, limit=limit)
+        entries, total = await self._passwords.find_by_cabinet(
+            cabinet_id, skip=skip, limit=limit, folder_id=folder_id
+        )
         return [_to_response(e) for e in entries], total
 
-    async def get_entry(
-        self,
-        entry_id: str,
-        username: str,
-        role: str,
-    ) -> PasswordEntryDetailResponse:
+    async def get_entry(self, entry_id, username, role):
         entry = await self._passwords.find_by_id(entry_id)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
         await _assert_member(self._cabinets, entry.cabinet_id, username, role)
         return _to_detail_response(entry)
 
-    async def reveal_entry(
-        self,
-        entry_id: str,
-        username: str,
-        role: str,
-        client_ip: str,
-    ) -> tuple[RevealResponse, dict]:
+    async def reveal_entry(self, entry_id, username, role, client_ip):
         master_key = _require_vault_key()
         entry = await self._passwords.find_by_id(entry_id)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
         await _assert_member(self._cabinets, entry.cabinet_id, username, role)
-
         try:
             plaintext = decrypt_password(master_key, entry.cabinet_id, entry.ciphertext, entry.iv)
         except Exception as exc:
@@ -140,38 +108,23 @@ class PasswordService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to decrypt password. The vault key may have changed.",
             ) from exc
-
         await self._audit.log(
-            action=AuditAction.REVEAL,
-            resource_type=ResourceType.PASSWORD_ENTRY,
-            username=username,
-            user_role=role,
-            client_ip=client_ip,
-            resource_id=entry_id,
+            action=AuditAction.REVEAL, resource_type=ResourceType.PASSWORD_ENTRY,
+            username=username, user_role=role, client_ip=client_ip, resource_id=entry_id,
             detail=f"Revealed password for entry '{entry.title}' in cabinet '{entry.cabinet_id}'",
         )
-        headers = {"Cache-Control": "no-store"}
-        return RevealResponse(password=plaintext), headers
+        return RevealResponse(password=plaintext), {"Cache-Control": "no-store"}
 
-    async def create_entry(
-        self,
-        data: PasswordEntryCreate,
-        created_by: str,
-        role: str,
-        client_ip: str,
-    ) -> PasswordEntryResponse:
-        if role not in (Role.OPERATOR.value, Role.ADMINISTRATOR.value):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Operator or Administrator role required",
-            )
+    async def create_entry(self, data, created_by, role, client_ip):
+        if role not in _OPERATOR_ABOVE:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operator or above role required")
         master_key = _require_vault_key()
         await _assert_member(self._cabinets, data.cabinet_id, created_by, role)
-
         ciphertext, iv = encrypt_password(master_key, data.cabinet_id, data.password)
         now = datetime.now(timezone.utc)
         doc = {
             "cabinet_id": data.cabinet_id,
+            "folder_id": data.folder_id,
             "title": data.title,
             "username": data.username,
             "ciphertext": ciphertext,
@@ -186,91 +139,69 @@ class PasswordService:
         }
         entry = await self._passwords.create(doc)
         await self._audit.log(
-            action=AuditAction.CREATE,
-            resource_type=ResourceType.PASSWORD_ENTRY,
-            username=created_by,
-            user_role=role,
-            client_ip=client_ip,
-            resource_id=entry.id,
-            after={"title": entry.title, "cabinet_id": entry.cabinet_id},
+            action=AuditAction.CREATE, resource_type=ResourceType.PASSWORD_ENTRY,
+            username=created_by, user_role=role, client_ip=client_ip, resource_id=entry.id,
+            after={"title": entry.title, "cabinet_id": entry.cabinet_id, "folder_id": entry.folder_id},
             detail=f"Created password entry '{entry.title}'",
         )
         return _to_response(entry)
 
-    async def update_entry(
-        self,
-        entry_id: str,
-        data: PasswordEntryUpdate,
-        updated_by: str,
-        role: str,
-        client_ip: str,
-    ) -> PasswordEntryResponse:
-        if role not in (Role.OPERATOR.value, Role.ADMINISTRATOR.value):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Operator or Administrator role required",
-            )
+    async def update_entry(self, entry_id, data, updated_by, role, client_ip):
+        if role not in _OPERATOR_ABOVE:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operator or above role required")
         entry = await self._passwords.find_by_id(entry_id)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
         await _assert_member(self._cabinets, entry.cabinet_id, updated_by, role)
-
-        fields = data.model_dump(exclude_none=True)
+        fields = data.model_dump(exclude_unset=True)
         if "password" in fields:
             master_key = _require_vault_key()
             ciphertext, iv = encrypt_password(master_key, entry.cabinet_id, fields.pop("password"))
             fields["ciphertext"] = ciphertext
             fields["iv"] = iv
-
         if not fields:
             return _to_response(entry)
-
         fields["updated_by"] = updated_by
         updated = await self._passwords.update(entry_id, fields)
         if updated is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
-
         await self._audit.log(
-            action=AuditAction.UPDATE,
-            resource_type=ResourceType.PASSWORD_ENTRY,
-            username=updated_by,
-            user_role=role,
-            client_ip=client_ip,
-            resource_id=entry_id,
+            action=AuditAction.UPDATE, resource_type=ResourceType.PASSWORD_ENTRY,
+            username=updated_by, user_role=role, client_ip=client_ip, resource_id=entry_id,
             detail=f"Updated password entry '{entry.title}'",
         )
         return _to_response(updated)
 
-    async def delete_entry(
-        self,
-        entry_id: str,
-        deleted_by: str,
-        role: str,
-        client_ip: str,
-    ) -> None:
-        if role not in (Role.OPERATOR.value, Role.ADMINISTRATOR.value):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Operator or Administrator role required",
-            )
+    async def move_entry(self, entry_id, folder_id, updated_by, role, client_ip):
+        if role not in _OPERATOR_ABOVE:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operator or above role required")
+        entry = await self._passwords.find_by_id(entry_id)
+        if entry is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
+        await _assert_member(self._cabinets, entry.cabinet_id, updated_by, role)
+        updated = await self._passwords.update(entry_id, {"folder_id": folder_id, "updated_by": updated_by})
+        if updated is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
+        await self._audit.log(
+            action=AuditAction.UPDATE, resource_type=ResourceType.PASSWORD_ENTRY,
+            username=updated_by, user_role=role, client_ip=client_ip, resource_id=entry_id,
+            detail=f"Moved password entry '{entry.title}' to folder '{folder_id}'",
+        )
+        return _to_response(updated)
+
+    async def delete_entry(self, entry_id, deleted_by, role, client_ip):
+        if role not in _OPERATOR_ABOVE:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operator or above role required")
         entry = await self._passwords.find_by_id(entry_id)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
         await _assert_member(self._cabinets, entry.cabinet_id, deleted_by, role)
-
         deleted = await self._passwords.delete(entry_id)
         if not deleted:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to delete entry",
-            )
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete entry")
         await self._audit.log(
-            action=AuditAction.DELETE,
-            resource_type=ResourceType.PASSWORD_ENTRY,
-            username=deleted_by,
-            user_role=role,
-            client_ip=client_ip,
-            resource_id=entry_id,
+            action=AuditAction.DELETE, resource_type=ResourceType.PASSWORD_ENTRY,
+            username=deleted_by, user_role=role, client_ip=client_ip, resource_id=entry_id,
             before={"title": entry.title, "cabinet_id": entry.cabinet_id},
             detail=f"Deleted password entry '{entry.title}'",
         )

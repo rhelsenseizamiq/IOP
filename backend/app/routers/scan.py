@@ -20,7 +20,7 @@ from app.repositories.subnet_repository import SubnetRepository
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/scan", tags=["scan"])
 
-_OPERATOR_PLUS = require_role("Operator", "Administrator")
+_OPERATOR_PLUS = require_role("Operator", "Administrator", "SuperAdmin")
 
 
 # ── Scan profiles ─────────────────────────────────────────────────────────────
@@ -295,6 +295,10 @@ class DiscoverScanResult(BaseModel):
     skipped: int
     errors: list[str]
     duration_seconds: float
+    created_ips: list[str] = []
+    updated_ips: list[str] = []
+    auto_created_subnets: int = 0
+    auto_created_subnet_cidrs: list[str] = []
 
 
 def _find_best_subnet(ip: str, subnets: list) -> Optional[object]:
@@ -365,6 +369,12 @@ async def discover_infrastructure(
                 discovered_hosts[r.ip_address] = r
 
     # Persist to DB
+    created_ips: list[str] = []
+    updated_ips: list[str] = []
+    auto_created_subnet_cidrs: list[str] = []
+    auto_created_cidrs_set: set[str] = set()
+    auto_created_subnets: int = 0
+    auto_created_subnet_cidrs: list[str] = []
     now = datetime.now(timezone.utc)
     ips_to_process: list[tuple[str, bool]] = []
     for cidr in body.cidrs:
@@ -379,8 +389,37 @@ async def discover_infrastructure(
         try:
             subnet = _find_best_subnet(ip_str, all_subnets)
             if subnet is None:
-                skipped += 1
-                continue
+                parts = ip_str.split(".")
+                auto_cidr = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+                if auto_cidr not in auto_created_cidrs_set:
+                    try:
+                        new_subnet = await subnet_repo.create({
+                            "cidr": auto_cidr,
+                            "name": f"Auto-created (scan)",
+                            "description": "Automatically created during infrastructure scan",
+                            "environment": "Production",
+                            "ip_version": 4,
+                            "prefix_len": 24,
+                            "vrf_id": None,
+                            "parent_id": None,
+                            "gateway": None,
+                            "vlan_id": None,
+                            "created_by": current_user.sub,
+                            "updated_by": current_user.sub,
+                            "created_at": now,
+                            "updated_at": now,
+                        })
+                        all_subnets.append(new_subnet)
+                        auto_created_cidrs_set.add(auto_cidr)
+                        auto_created_subnet_cidrs.append(auto_cidr)
+                    except Exception as exc:
+                        errors.append(f"auto-subnet {auto_cidr}: {exc}")
+                        skipped += 1
+                        continue
+                subnet = _find_best_subnet(ip_str, all_subnets)
+                if subnet is None:
+                    skipped += 1
+                    continue
 
             host_info = discovered_hosts.get(ip_str)
             new_status = "In Use" if is_active else "Free"
@@ -407,6 +446,7 @@ async def discover_infrastructure(
                     "reserved_by": None,
                 })
                 created += 1
+                created_ips.append(ip_str)
             else:
                 if body.overwrite_status:
                     update_fields: dict = {
@@ -419,6 +459,7 @@ async def discover_infrastructure(
                         update_fields["os_type"] = os_type
                     await ip_repo.update(existing.id, update_fields)
                     updated += 1
+                    updated_ips.append(ip_str)
                 else:
                     skipped += 1
         except Exception as exc:
@@ -439,4 +480,8 @@ async def discover_infrastructure(
         skipped=skipped,
         errors=errors,
         duration_seconds=duration,
+        created_ips=sorted(created_ips, key=lambda ip: [int(x) for x in ip.split(".")]),
+        updated_ips=sorted(updated_ips, key=lambda ip: [int(x) for x in ip.split(".")]),
+        auto_created_subnets=len(auto_created_subnet_cidrs),
+        auto_created_subnet_cidrs=sorted(auto_created_subnet_cidrs),
     )

@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel
 
 from app.config import Settings, get_settings
 from app.core.database import get_database
@@ -83,11 +84,8 @@ async def logout(
     service = _build_auth_service(db)
     client_ip = _get_client_ip(request)
 
-    # Decode token to get exp for blocklist TTL
     from app.core.security import decode_token
-    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-    # Re-read the raw Authorization header to get expiry
     auth_header = request.headers.get("Authorization", "")
     raw_token = auth_header.removeprefix("Bearer ").strip()
     payload = decode_token(raw_token, settings)
@@ -109,10 +107,14 @@ async def logout(
 async def me(
     current_user: UserInToken = Depends(get_current_user),
 ) -> dict:
+    db = get_database()
+    user_repo = UserRepository(db["users"])
+    user = await user_repo.find_by_username(current_user.sub)
     return {
         "username": current_user.sub,
         "role": current_user.role.value,
         "full_name": current_user.full_name,
+        "auth_type": user.auth_type if user else "local",
     }
 
 
@@ -162,3 +164,24 @@ async def change_password(
         client_ip=client_ip,
         user_role=current_user.role.value,
     )
+
+
+class RoleUpgradeRequest(BaseModel):
+    requested_role: str
+    reason: str = ""
+
+
+@router.post("/request-role", status_code=status.HTTP_204_NO_CONTENT)
+async def request_role_upgrade(
+    body: RoleUpgradeRequest,
+    current_user: UserInToken = Depends(get_current_user),
+) -> None:
+    """Logged-in user requests a role upgrade. Visible to admins in Users page."""
+    db = get_database()
+    user_repo = UserRepository(db["users"])
+    user = await user_repo.find_by_username(current_user.sub)
+    if not user or not user.id:
+        raise HTTPException(status_code=404, detail="User not found")
+    reason = (body.reason or "")[:500].strip()
+    note = f"[ROLE_REQUEST:{body.requested_role}] {reason}".strip()
+    await user_repo.update(user.id, {"registration_note": note})

@@ -26,7 +26,7 @@ export const SCAN_MODES: ScanModeInfo[] = [
     osDetect: false,
     hostname: false,
     ports: 4,
-    color: '#52c41a',
+    color: '#63e2b7',
   },
   {
     key: 'standard',
@@ -38,7 +38,7 @@ export const SCAN_MODES: ScanModeInfo[] = [
     osDetect: true,
     hostname: true,
     ports: 14,
-    color: '#1677ff',
+    color: '#63e2b7',
   },
   {
     key: 'deep',
@@ -50,7 +50,7 @@ export const SCAN_MODES: ScanModeInfo[] = [
     osDetect: true,
     hostname: true,
     ports: 35,
-    color: '#722ed1',
+    color: '#63e2b7',
   },
 ];
 
@@ -89,6 +89,10 @@ export interface DiscoverScanResult {
   skipped: number;
   errors: string[];
   duration_seconds: number;
+  created_ips: string[];
+  updated_ips: string[];
+  auto_created_subnets: number;
+  auto_created_subnet_cidrs: string[];
 }
 
 export const scanApi = {

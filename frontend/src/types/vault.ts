@@ -10,9 +10,21 @@ export interface Cabinet {
   updated_by: string;
 }
 
+export interface Folder {
+  id: string;
+  cabinet_id: string;
+  parent_id: string | null;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  updated_by: string;
+}
+
 export interface PasswordEntry {
   id: string;
   cabinet_id: string;
+  folder_id: string | null;
   title: string;
   username: string | null;
   url: string | null;
@@ -38,8 +50,19 @@ export interface CabinetUpdate {
   description?: string;
 }
 
+export interface FolderCreate {
+  cabinet_id: string;
+  parent_id?: string | null;
+  name: string;
+}
+
+export interface FolderUpdate {
+  name: string;
+}
+
 export interface PasswordEntryCreate {
   cabinet_id: string;
+  folder_id?: string | null;
   title: string;
   username?: string;
   password: string;
@@ -49,6 +72,7 @@ export interface PasswordEntryCreate {
 }
 
 export interface PasswordEntryUpdate {
+  folder_id?: string | null;
   title?: string;
   username?: string;
   password?: string;

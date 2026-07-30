@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Layout, Button, Tooltip } from 'antd';
-import { QuestionCircleOutlined } from '@ant-design/icons';
-import Sidebar from './Sidebar';
-import AppHeader from './Header';
-import HelpDrawer from './HelpDrawer';
+import React, { useState } from "react";
+import { Layout, Button, Tooltip } from "antd";
+import { QuestionCircleOutlined } from "@ant-design/icons";
+import Sidebar from "./Sidebar";
+import AppHeader from "./Header";
+import HelpDrawer from "./HelpDrawer";
 
 const { Sider, Header, Content } = Layout;
 
@@ -15,7 +15,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [helpOpen, setHelpOpen] = useState(false);
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: "100vh", background: "#1e1e28" }}>
       <Sider
         collapsible
         collapsed={collapsed}
@@ -23,48 +23,49 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         width={SIDER_WIDTH}
         collapsedWidth={SIDER_COLLAPSED_WIDTH}
         style={{
-          overflow: 'auto',
-          height: '100vh',
-          position: 'fixed',
+          overflow: "auto",
+          height: "100vh",
+          position: "fixed",
           left: 0,
           top: 0,
           bottom: 0,
           zIndex: 100,
-          display: 'flex',
-          flexDirection: 'column',
+          display: "flex",
+          flexDirection: "column",
+          background: "#16161f",
         }}
         theme="dark"
       >
         <div
           style={{
-            height: 48,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: collapsed ? 'center' : 'flex-start',
-            padding: collapsed ? 0 : '0 16px',
-            color: '#fff',
+            height: 52,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: collapsed ? "center" : "flex-start",
+            padding: collapsed ? 0 : "0 16px",
+            color: "#63e2b7",
             fontWeight: 700,
-            fontSize: collapsed ? 14 : 16,
+            fontSize: collapsed ? 13 : 15,
             letterSpacing: 0.5,
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
+            borderBottom: "1px solid rgba(255,255,255,0.07)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
             flexShrink: 0,
           }}
         >
-          {collapsed ? 'IP' : 'IPAM Portal'}
+          {collapsed ? "IP" : "IPAM Portal"}
         </div>
 
-        <div style={{ flex: 1, overflow: 'auto' }}>
+        <div style={{ flex: 1, overflow: "auto" }}>
           <Sidebar collapsed={collapsed} />
         </div>
 
         <div
           style={{
-            borderTop: '1px solid rgba(255,255,255,0.1)',
-            padding: collapsed ? '12px 0' : '12px 16px',
-            display: 'flex',
-            justifyContent: collapsed ? 'center' : 'flex-start',
+            borderTop: "1px solid rgba(255,255,255,0.1)",
+            padding: collapsed ? "12px 0" : "12px 16px",
+            display: "flex",
+            justifyContent: collapsed ? "center" : "flex-start",
             flexShrink: 0,
           }}
         >
@@ -74,13 +75,13 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               icon={<QuestionCircleOutlined />}
               onClick={() => setHelpOpen(true)}
               style={{
-                color: 'rgba(255,255,255,0.65)',
-                padding: collapsed ? '4px 8px' : '4px 0',
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                width: '100%',
+                color: "rgba(255,255,255,0.65)",
+                padding: collapsed ? "4px 8px" : "4px 0",
+                justifyContent: collapsed ? "center" : "flex-start",
+                width: "100%",
               }}
             >
-              {collapsed ? null : 'Help & Concepts'}
+              {collapsed ? null : "Help & Concepts"}
             </Button>
           </Tooltip>
         </div>
@@ -89,17 +90,18 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       <Layout
         style={{
           marginLeft: collapsed ? SIDER_COLLAPSED_WIDTH : SIDER_WIDTH,
-          transition: 'margin-left 0.2s',
+          transition: "margin-left 0.2s",
+          background: "#1e1e28",
         }}
       >
         <Header
           style={{
             padding: 0,
-            background: '#fff',
-            position: 'sticky',
+            background: "#16161f",
+            position: "sticky",
             top: 0,
             zIndex: 99,
-            boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+            borderBottom: "1px solid rgba(255,255,255,0.07)",
           }}
         >
           <AppHeader />
@@ -107,16 +109,17 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         <Content
           style={{
-            margin: '24px 24px 0',
-            overflow: 'initial',
+            margin: "20px 20px 0",
+            overflow: "initial",
           }}
         >
           <div
             style={{
               padding: 24,
-              minHeight: 'calc(100vh - 112px)',
-              background: '#fff',
-              borderRadius: 8,
+              minHeight: "calc(100vh - 112px)",
+              background: "#252530",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.06)",
             }}
           >
             {children}

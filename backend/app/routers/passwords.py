@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Path, Query, Request, status
 from fastapi.responses import JSONResponse
@@ -18,6 +18,7 @@ from app.schemas.password_entry import (
     PasswordEntryDetailResponse,
     PasswordEntryResponse,
     PasswordEntryUpdate,
+    PasswordMoveRequest,
     RevealResponse,
 )
 from app.services.password_service import PasswordService
@@ -27,8 +28,8 @@ router = APIRouter(prefix="/passwords", tags=["passwords"])
 
 _OBJECTID_PATTERN = "^[0-9a-f]{24}$"
 
-_VIEWER_PLUS = require_role("Viewer", "Operator", "Administrator")
-_OPERATOR_PLUS = require_role("Operator", "Administrator")
+_VIEWER_PLUS = require_role("Viewer", "Operator", "Administrator", "SuperAdmin")
+_OPERATOR_PLUS = require_role("Operator", "Administrator", "SuperAdmin")
 
 
 def _get_client_ip(request: Request) -> str:
@@ -48,6 +49,7 @@ def _build_service() -> PasswordService:
 async def list_entries(
     request: Request,
     cabinet_id: str = Query(..., description="Cabinet ObjectId"),
+    folder_id: Optional[str] = Query(default=None, description="Folder ObjectId (omit for all)"),
     pagination: PaginationParams = Depends(),
     current_user: UserInToken = Depends(_VIEWER_PLUS),
 ) -> PaginatedResponse[PasswordEntryResponse]:
@@ -58,16 +60,11 @@ async def list_entries(
         role=current_user.role.value,
         skip=pagination.skip,
         limit=pagination.page_size,
+        folder_id=folder_id,
     )
-    return PaginatedResponse.create(
-        items=entries,
-        total=total,
-        page=pagination.page,
-        page_size=pagination.page_size,
-    )
+    return PaginatedResponse.create(items=entries, total=total, page=pagination.page, page_size=pagination.page_size)
 
 
-# IMPORTANT: /{id}/reveal must be registered BEFORE /{id} to avoid route shadowing
 @router.get("/{id}/reveal", response_model=RevealResponse)
 @limiter.limit("10/minute")
 async def reveal_password(
@@ -77,10 +74,8 @@ async def reveal_password(
 ) -> JSONResponse:
     service = _build_service()
     reveal, headers = await service.reveal_entry(
-        entry_id=id,
-        username=current_user.sub,
-        role=current_user.role.value,
-        client_ip=_get_client_ip(request),
+        entry_id=id, username=current_user.sub,
+        role=current_user.role.value, client_ip=_get_client_ip(request),
     )
     return JSONResponse(content=reveal.model_dump(), headers=headers)
 
@@ -92,11 +87,7 @@ async def get_entry(
     current_user: UserInToken = Depends(_VIEWER_PLUS),
 ) -> PasswordEntryDetailResponse:
     service = _build_service()
-    return await service.get_entry(
-        entry_id=id,
-        username=current_user.sub,
-        role=current_user.role.value,
-    )
+    return await service.get_entry(entry_id=id, username=current_user.sub, role=current_user.role.value)
 
 
 @router.post("", response_model=PasswordEntryResponse, status_code=status.HTTP_201_CREATED)
@@ -107,9 +98,22 @@ async def create_entry(
 ) -> PasswordEntryResponse:
     service = _build_service()
     return await service.create_entry(
-        data=body,
-        created_by=current_user.sub,
-        role=current_user.role.value,
+        data=body, created_by=current_user.sub,
+        role=current_user.role.value, client_ip=_get_client_ip(request),
+    )
+
+
+@router.patch("/{id}/move", response_model=PasswordEntryResponse)
+async def move_entry(
+    id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
+    request: Request,
+    body: PasswordMoveRequest,
+    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+) -> PasswordEntryResponse:
+    service = _build_service()
+    return await service.move_entry(
+        entry_id=id, folder_id=body.folder_id,
+        updated_by=current_user.sub, role=current_user.role.value,
         client_ip=_get_client_ip(request),
     )
 
@@ -123,11 +127,8 @@ async def update_entry(
 ) -> PasswordEntryResponse:
     service = _build_service()
     return await service.update_entry(
-        entry_id=id,
-        data=body,
-        updated_by=current_user.sub,
-        role=current_user.role.value,
-        client_ip=_get_client_ip(request),
+        entry_id=id, data=body, updated_by=current_user.sub,
+        role=current_user.role.value, client_ip=_get_client_ip(request),
     )
 
 
@@ -139,8 +140,6 @@ async def delete_entry(
 ) -> None:
     service = _build_service()
     await service.delete_entry(
-        entry_id=id,
-        deleted_by=current_user.sub,
-        role=current_user.role.value,
-        client_ip=_get_client_ip(request),
+        entry_id=id, deleted_by=current_user.sub,
+        role=current_user.role.value, client_ip=_get_client_ip(request),
     )

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 class PasswordEntryCreate(BaseModel):
     cabinet_id: str
+    folder_id: Optional[str] = None
     title: str = Field(min_length=1, max_length=200)
     username: Optional[str] = Field(default=None, max_length=200)
     password: str = Field(min_length=1, max_length=1000)
@@ -19,6 +20,7 @@ class PasswordEntryCreate(BaseModel):
 
 
 class PasswordEntryUpdate(BaseModel):
+    folder_id: Optional[str] = Field(default=None)
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     username: Optional[str] = Field(default=None, max_length=200)
     password: Optional[str] = Field(default=None, min_length=1, max_length=1000)
@@ -33,10 +35,14 @@ class PasswordEntryUpdate(BaseModel):
                     raise ValueError(f"Each tag must be at most 50 characters, got {len(tag)!r}")
 
 
+class PasswordMoveRequest(BaseModel):
+    folder_id: Optional[str] = None
+
+
 class PasswordEntryResponse(BaseModel):
-    """List/detail response — never includes ciphertext or iv."""
     id: str
     cabinet_id: str
+    folder_id: Optional[str]
     title: str
     username: Optional[str]
     url: Optional[str]
@@ -48,10 +54,8 @@ class PasswordEntryResponse(BaseModel):
 
 
 class PasswordEntryDetailResponse(PasswordEntryResponse):
-    """Single-entry detail — adds notes but still no ciphertext/iv."""
     notes: Optional[str]
 
 
 class RevealResponse(BaseModel):
-    """Dedicated reveal schema — contains only the decrypted password."""
     password: str

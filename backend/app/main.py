@@ -41,7 +41,7 @@ async def _seed_default_admin() -> None:
                 "password_hash": hash_password(settings.INITIAL_ADMIN_PASSWORD),
                 "full_name": "System Administrator",
                 "email": None,
-                "role": Role.ADMINISTRATOR.value,
+                "role": Role.SUPER_ADMIN.value,
                 "is_active": True,
                 "created_at": now,
                 "updated_at": now,
@@ -133,7 +133,7 @@ def create_app() -> FastAPI:
     # Include routers
     from app.routers import auth, users, ip_records, subnets, audit_logs, scan, stats
     from app.routers import vrfs, rirs, aggregates, ip_ranges, conflicts, integrations
-    from app.routers import cabinets, passwords, assets
+    from app.routers import cabinets, passwords, assets, folders
 
     api_prefix = "/api/v1"
     app.include_router(auth.router, prefix=api_prefix)
@@ -152,6 +152,7 @@ def create_app() -> FastAPI:
     app.include_router(cabinets.router, prefix=api_prefix)
     app.include_router(passwords.router, prefix=api_prefix)
     app.include_router(assets.router, prefix=api_prefix)
+    app.include_router(folders.router, prefix=api_prefix)
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict:

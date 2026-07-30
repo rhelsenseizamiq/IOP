@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Drawer,
   Descriptions,
@@ -42,6 +43,7 @@ interface Props {
 
 const SubnetDetailDrawer: React.FC<Props> = ({ subnet, onClose }) => {
   const { hasRole } = useAuth();
+  const navigate = useNavigate();
   const [ranges, setRanges] = useState<IPRange[]>([]);
   const [rangesTotal, setRangesTotal] = useState(0);
   const [loadingRanges, setLoadingRanges] = useState(false);
@@ -324,7 +326,8 @@ const SubnetDetailDrawer: React.FC<Props> = ({ subnet, onClose }) => {
           type="link"
           style={{ padding: 0 }}
           onClick={() => {
-            window.open(`/ip-records?subnet_id=${subnet.id}`, '_blank');
+            onClose();
+            navigate(`/ip-records?subnet_id=${subnet.id}`);
           }}
         >
           View all IP records in this subnet →

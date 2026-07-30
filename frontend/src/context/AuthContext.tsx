@@ -18,6 +18,7 @@ const ROLE_LEVELS: Record<Role, number> = {
   Viewer: 1,
   Operator: 2,
   Administrator: 3,
+  SuperAdmin: 4,
 };
 
 const defaultContextValue: AuthContextValue = {
@@ -40,7 +41,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [fullName, setFullName] = useState<string | null>(null);
   const [role, setRole] = useState<Role | null>(null);
 
-  // Attempt silent token refresh on mount to restore session from HttpOnly cookie
   useEffect(() => {
     authApi
       .refresh()
@@ -54,9 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .then((res) => {
         setUsername(res.data.username);
       })
-      .catch(() => {
-        // No valid session — user must log in
-      })
+      .catch(() => {})
       .finally(() => {
         setIsInitializing(false);
       });
@@ -72,9 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(async (): Promise<void> => {
-    await authApi.logout().catch(() => {
-      // Best-effort logout; clear local state regardless
-    });
+    await authApi.logout().catch(() => {});
     setAccessToken(null);
     setIsAuthenticated(false);
     setUsername(null);
@@ -85,7 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const hasRole = useCallback(
     (required: Role): boolean => {
       if (!role) return false;
-      return ROLE_LEVELS[role] >= ROLE_LEVELS[required];
+      return (ROLE_LEVELS[role] ?? 0) >= (ROLE_LEVELS[required] ?? 99);
     },
     [role]
   );
