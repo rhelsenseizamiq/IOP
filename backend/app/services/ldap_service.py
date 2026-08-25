@@ -27,6 +27,7 @@ class LDAPService:
 
         try:
             from ldap3 import Server, Connection, NONE, SUBTREE, Tls
+            from ldap3.utils.conv import escape_filter_chars
             import ssl
 
             tls = None
@@ -58,7 +59,9 @@ class LDAPService:
                     receive_timeout=_RECEIVE_TIMEOUT,
                 )
 
-            search_filter = self._settings.LDAP_USER_FILTER.format(username=username)
+            search_filter = self._settings.LDAP_USER_FILTER.format(
+                username=escape_filter_chars(username)
+            )
             service_conn.search(
                 search_base=self._settings.LDAP_BASE_DN,
                 search_filter=search_filter,

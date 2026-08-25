@@ -44,6 +44,7 @@ class Device42Service:
         verify_ssl: bool = False,
         limit: int = 2000,
     ) -> list[Device42IP]:
+        host = host.strip().rstrip("/")
         base = host if host.startswith("http") else f"https://{host}"
         results: list[Device42IP] = []
 

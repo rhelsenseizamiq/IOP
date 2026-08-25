@@ -27,9 +27,16 @@ from app.schemas.paloalto import (
     PaloAltoImportRequest,
     PaloAltoImportResult,
 )
+from app.schemas.zabbix import (
+    ZabbixDiscoverRequest,
+    ZabbixHost,
+    ZabbixImportRequest,
+    ZabbixImportResult,
+)
 from app.services.device42_service import Device42Service
 from app.services.paloalto_service import PaloAltoService
 from app.services.vsphere_service import VsphereService
+from app.services.zabbix_service import ZabbixService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -193,6 +200,99 @@ async def device42_import(
             errors.append(f"{ip_item.ip_address}: unexpected error — {exc}")
 
     return Device42ImportResult(created=created, skipped=skipped, errors=errors)
+
+
+# ── Zabbix ─────────────────────────────────────────────────────────────────────
+# Unlike Device42/PaloAlto, credentials are never accepted from the request —
+# only from server config (ZABBIX_HOST/ZABBIX_TOKEN in .env.api), matching how
+# the Check Availability > Zabbix lookup and the nightly sync script work too.
+
+def _zabbix_settings() -> tuple[str, str]:
+    from app.config import get_settings
+
+    settings = get_settings()
+    host = getattr(settings, "ZABBIX_HOST", None)
+    token = getattr(settings, "ZABBIX_TOKEN", None)
+    if not host or not token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Zabbix is not configured (ZABBIX_HOST/ZABBIX_TOKEN missing)",
+        )
+    return host, token
+
+
+@router.post("/zabbix/discover", response_model=list[ZabbixHost])
+async def zabbix_discover(
+    body: ZabbixDiscoverRequest,
+    current_user: UserInToken = Depends(_OPERATOR),
+) -> list[ZabbixHost]:
+    """Connect to Zabbix (using the server-configured token) and return all
+    monitored hosts' IP addresses."""
+    host, token = _zabbix_settings()
+    try:
+        return await ZabbixService.discover(host=host, token=token, limit=body.limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post("/zabbix/import", response_model=ZabbixImportResult)
+async def zabbix_import(
+    body: ZabbixImportRequest,
+    current_user: UserInToken = Depends(_OPERATOR),
+) -> ZabbixImportResult:
+    """Bulk-import selected Zabbix hosts as IPAM records."""
+    db = get_database()
+    subnet_repo = SubnetRepository(db["subnets"])
+    ip_repo = IPRecordRepository(db["ip_records"])
+
+    created = skipped = 0
+    errors: list[str] = []
+
+    for ip_item in body.ips:
+        try:
+            try:
+                ipaddress.ip_address(ip_item.ip_address)
+            except ValueError as exc:
+                raise ValueError(f"Invalid IP '{ip_item.ip_address}'") from exc
+
+            subnet = await subnet_repo.find_by_id(ip_item.subnet_id)
+            if subnet is None:
+                raise ValueError(f"Subnet '{ip_item.subnet_id}' not found")
+
+            network = ipaddress.ip_network(subnet.cidr, strict=False)
+            if ipaddress.ip_address(ip_item.ip_address) not in network:
+                raise ValueError(f"IP {ip_item.ip_address} is not within {subnet.cidr}")
+
+            if await ip_repo.find_by_ip(ip_item.ip_address) is not None:
+                skipped += 1
+                continue
+
+            now = datetime.now(timezone.utc)
+            await ip_repo.create({
+                "ip_address": ip_item.ip_address,
+                "hostname": ip_item.hostname or ip_item.device_name,
+                "os_type": "Unknown",
+                "subnet_id": ip_item.subnet_id,
+                "vrf_id": subnet.vrf_id,
+                "status": "In Use",
+                "environment": ip_item.environment,
+                "owner": None,
+                "description": f"Imported from Zabbix: {ip_item.device_name or ip_item.ip_address}",
+                "created_at": now,
+                "updated_at": now,
+                "created_by": current_user.sub,
+                "updated_by": current_user.sub,
+                "reserved_at": None,
+                "reserved_by": None,
+            })
+            created += 1
+
+        except ValueError as exc:
+            errors.append(f"{ip_item.ip_address}: {exc}")
+        except Exception as exc:
+            errors.append(f"{ip_item.ip_address}: unexpected error — {exc}")
+
+    return ZabbixImportResult(created=created, skipped=skipped, errors=errors)
 
 
 # ── PaloAlto ───────────────────────────────────────────────────────────────────

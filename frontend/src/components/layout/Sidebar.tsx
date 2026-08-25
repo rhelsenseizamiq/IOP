@@ -1,6 +1,6 @@
-import React, { useMemo, useEffect, useState } from 'react';
-import { Menu, Badge } from 'antd';
-import type { MenuProps } from 'antd';
+import React, { useMemo, useEffect, useState } from "react";
+import { Menu, Badge } from "antd";
+import type { MenuProps } from "antd";
 import {
   HomeOutlined,
   DashboardOutlined,
@@ -9,17 +9,16 @@ import {
   ScanOutlined,
   TeamOutlined,
   AuditOutlined,
-  ClusterOutlined,
   DatabaseOutlined,
   ApiOutlined,
   UserAddOutlined,
-  HddOutlined,
-} from '@ant-design/icons';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import { usersApi } from '../../api/users';
+  UnorderedListOutlined,
+} from "@ant-design/icons";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import { usersApi } from "../../api/users";
 
-type MenuItem = Required<MenuProps>['items'][number];
+type MenuItem = Required<MenuProps>["items"][number];
 
 interface Props {
   collapsed: boolean;
@@ -32,111 +31,129 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
-    if (!hasRole('Administrator')) return;
-    usersApi.pending({ page: 1, page_size: 1 })
+    if (!hasRole("Administrator")) return;
+    usersApi
+      .pending({ page: 1, page_size: 1 })
       .then((res) => setPendingCount(res.data.total))
-      .catch(() => { /* non-critical */ });
+      .catch(() => {
+        /* non-critical */
+      });
   }, [hasRole]);
 
   const selectedKey = useMemo(() => {
     const path = location.pathname;
-    if (path === '/') return '/';
-    if (path.startsWith('/ip-records')) return '/ip-records';
-    if (path.startsWith('/subnets')) return '/subnets';
-    if (path.startsWith('/vrfs')) return '/vrfs';
-    if (path.startsWith('/aggregates')) return '/aggregates';
-    if (path.startsWith('/assets')) return '/assets';
-    if (path.startsWith('/network-scan')) return '/network-scan';
-    if (path.startsWith('/integrations')) return '/integrations';
-    if (path.startsWith('/users')) return '/users';
-    if (path.startsWith('/pending-approvals')) return '/pending-approvals';
-    if (path.startsWith('/audit-log')) return '/audit-log';
-    return '/dashboard';
+    if (path === "/") return "/";
+    if (path.startsWith("/ip-records")) return "/ip-records";
+    if (path.startsWith("/unused-ips")) return "/unused-ips";
+    if (path.startsWith("/subnets")) return "/subnets";
+    if (path.startsWith("/vrfs")) return "/vrfs";
+    if (path.startsWith("/aggregates")) return "/aggregates";
+    if (path.startsWith("/assets")) return "/assets";
+    if (path.startsWith("/network-scan")) return "/network-scan";
+    if (path.startsWith("/integrations")) return "/integrations";
+    if (path.startsWith("/users")) return "/users";
+    if (path.startsWith("/pending-approvals")) return "/pending-approvals";
+    if (path.startsWith("/audit-log")) return "/audit-log";
+    return "/dashboard";
   }, [location.pathname]);
 
   const menuItems = useMemo((): MenuItem[] => {
     const items: MenuItem[] = [
       {
-        key: '/',
+        key: "/",
         icon: <HomeOutlined />,
-        label: 'Home',
+        label: "Home",
       },
       {
-        key: '/dashboard',
+        key: "/dashboard",
         icon: <DashboardOutlined />,
-        label: 'Dashboard',
+        label: "Dashboard",
       },
       {
-        key: 'ipam-group',
+        key: "ipam-group",
         icon: <DatabaseOutlined />,
-        label: 'IPAM',
+        label: "IPAM",
         children: [
           {
-            key: '/ip-records',
+            key: "/ip-records",
             icon: <GlobalOutlined />,
-            label: 'IP Records',
+            label: "IP Records",
           },
           {
-            key: '/subnets',
+            key: "/subnets",
             icon: <ApartmentOutlined />,
-            label: 'Subnets',
+            label: "Subnets",
           },
           {
-            key: '/vrfs',
-            icon: <ClusterOutlined />,
-            label: 'VRFs',
+            key: "/unused-ips",
+            icon: <UnorderedListOutlined />,
+            label: "Unused IP Addresses",
           },
-          {
-            key: '/aggregates',
-            icon: <DatabaseOutlined />,
-            label: 'Aggregates',
-          },
-          {
-            key: '/assets',
-            icon: <HddOutlined />,
-            label: 'Assets',
-          },
+          // VRFs / Aggregates / Assets — disabled, currently unused.
+          // Re-enable by uncommenting these entries + the matching routes
+          // in App.tsx and this file's selectedKey logic above.
+          // {
+          //   key: "/vrfs",
+          //   icon: <ClusterOutlined />,
+          //   label: "VRFs",
+          // },
+          // {
+          //   key: "/aggregates",
+          //   icon: <DatabaseOutlined />,
+          //   label: "Aggregates",
+          // },
+          // {
+          //   key: "/assets",
+          //   icon: <HddOutlined />,
+          //   label: "Assets",
+          // },
         ],
       },
     ];
 
-    if (hasRole('Operator')) {
+    if (hasRole("Operator")) {
       items.push(
         {
-          key: '/network-scan',
+          key: "/network-scan",
           icon: <ScanOutlined />,
-          label: 'Network Scan',
+          label: "Network Scan",
         },
         {
-          key: '/integrations',
+          key: "/integrations",
           icon: <ApiOutlined />,
-          label: 'Integrations',
-        }
+          label: "Integrations",
+        },
       );
     }
 
-    if (hasRole('Administrator')) {
+    if (hasRole("Administrator")) {
       items.push(
         {
-          key: '/users',
+          key: "/users",
           icon: <TeamOutlined />,
-          label: 'Users',
+          label: "Users",
         },
         {
-          key: '/pending-approvals',
+          key: "/pending-approvals",
           icon: <UserAddOutlined />,
           label: (
-            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
               Pending Approvals
               {pendingCount > 0 && <Badge count={pendingCount} size="small" />}
             </span>
           ),
         },
         {
-          key: '/audit-log',
+          key: "/audit-log",
           icon: <AuditOutlined />,
-          label: 'Audit Log',
-        }
+          label: "Audit Log",
+        },
       );
     }
 
@@ -148,11 +165,11 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
       theme="dark"
       mode="inline"
       selectedKeys={[selectedKey]}
-      defaultOpenKeys={['ipam-group']}
+      defaultOpenKeys={["ipam-group"]}
       inlineCollapsed={collapsed}
       items={menuItems}
       onClick={({ key }) => {
-        if (key !== 'ipam-group') navigate(key);
+        if (key !== "ipam-group") navigate(key);
       }}
       style={{ borderRight: 0, flex: 1 }}
     />

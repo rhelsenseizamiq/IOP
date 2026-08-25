@@ -17,6 +17,13 @@ class IPRecordRepository(BaseRepository[IPRecord]):
         doc = await self._col.find_one({"ip_address": ip_address})
         return self._doc_to_model(doc) if doc else None
 
+    async def find_used_addresses_by_subnet(self, subnet_id: str) -> set[str]:
+        """Returns the set of ip_address strings already recorded for a subnet
+        (any status) — used to compute which addresses in the CIDR are unused."""
+        cursor = self._col.find({"subnet_id": subnet_id}, {"ip_address": 1})
+        docs = await cursor.to_list(length=None)
+        return {doc["ip_address"] for doc in docs}
+
     async def find_by_ip_and_vrf(
         self, ip_address: str, vrf_id: Optional[str]
     ) -> Optional[IPRecord]:

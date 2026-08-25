@@ -8,10 +8,8 @@ const db = db.getSiblingDB("ipam");
 // ── Create application user (least privilege: readWrite only) ─────────────────
 db.createUser({
   user: process.env.MONGO_APP_USER || "ipam_app",
-  pwd:  process.env.MONGO_APP_PASSWORD || "changeme",
-  roles: [
-    { role: "readWrite", db: "ipam" }
-  ]
+  pwd: process.env.MONGO_APP_PASSWORD || "changeme",
+  roles: [{ role: "readWrite", db: "ipam" }],
 });
 
 print("✓ Application user created");
@@ -46,7 +44,11 @@ db.ip_records.createIndex({ environment: 1 });
 db.ip_records.createIndex({ os_type: 1 });
 db.ip_records.createIndex({ status: 1, environment: 1 });
 db.ip_records.createIndex({ vrf_id: 1 });
-db.ip_records.createIndex({ hostname: "text", description: "text", owner: "text" });
+db.ip_records.createIndex({
+  hostname: "text",
+  description: "text",
+  owner: "text",
+});
 
 print("✓ ip_records indexes created");
 
@@ -110,6 +112,13 @@ db.createCollection("password_entries");
 db.password_entries.createIndex({ cabinet_id: 1, created_at: -1 });
 db.password_entries.createIndex({ tags: 1 });
 
+// ── folders collection ──────────────────────────────────────────────────────
+db.createCollection("folders");
+db.folders.createIndex({ cabinet_id: 1 });
+db.folders.createIndex({ cabinet_id: 1, parent_id: 1, name: 1 });
+
+print("✓ folders indexes created");
+
 print("✓ password_entries indexes created");
 
 // ── assets collection ─────────────────────────────────────────────────────────
@@ -119,7 +128,11 @@ db.assets.createIndex({ asset_type: 1 });
 db.assets.createIndex({ status: 1 });
 db.assets.createIndex({ ip_record_id: 1 });
 db.assets.createIndex({ data_center: 1 });
-db.assets.createIndex({ name: "text", hostname: "text", serial_number: "text" });
+db.assets.createIndex({
+  name: "text",
+  hostname: "text",
+  serial_number: "text",
+});
 
 print("✓ assets indexes created");
 

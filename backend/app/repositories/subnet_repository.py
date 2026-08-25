@@ -26,6 +26,16 @@ class SubnetRepository(BaseRepository[Subnet]):
         docs = await cursor.to_list(length=None)
         return [self._doc_to_model(doc) for doc in docs]
 
+    async def find_siblings(
+        self, parent_id: Optional[str], vrf_id: Optional[str]
+    ) -> list[Subnet]:
+        """Subnets sharing the same parent (None = root level) within a VRF —
+        the candidate set for reparenting when a new subnet is inserted
+        between them and their current parent."""
+        cursor = self._col.find({"parent_id": parent_id, "vrf_id": vrf_id})
+        docs = await cursor.to_list(length=None)
+        return [self._doc_to_model(doc) for doc in docs]
+
     async def find_potential_parents(
         self, prefix_len: int, vrf_id: Optional[str] = None
     ) -> list[Subnet]:

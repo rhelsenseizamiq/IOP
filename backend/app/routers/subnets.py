@@ -14,7 +14,14 @@ from app.repositories.ip_record_repository import IPRecordRepository
 from app.repositories.subnet_repository import SubnetRepository
 from app.repositories.vrf_repository import VRFRepository
 from app.schemas.audit_log import PaginatedResponse
-from app.schemas.subnet import SubnetCreate, SubnetDetailResponse, SubnetResponse, SubnetTreeNode, SubnetUpdate
+from app.schemas.subnet import (
+    SubnetCreate,
+    SubnetDetailResponse,
+    SubnetResponse,
+    SubnetTreeNode,
+    SubnetUpdate,
+    UnusedIPsResponse,
+)
 from app.services.subnet_service import SubnetService
 
 logger = logging.getLogger(__name__)
@@ -51,6 +58,21 @@ async def get_subnet_tree(
 ) -> list[SubnetTreeNode]:
     service = _build_service()
     return await service.build_tree(vrf_id=vrf_id, environment=environment)
+
+
+@router.get("/{id}/unused-ips", response_model=UnusedIPsResponse)
+async def get_unused_ips(
+    id: str = Path(..., pattern=_OBJECTID_PATTERN),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    search: Optional[str] = Query(None, description="Substring filter on the IP address"),
+    current_user: UserInToken = Depends(_VIEWER_PLUS),
+) -> UnusedIPsResponse:
+    """Addresses within this subnet's CIDR that have no IP record at all —
+    distinct from the existing 'Free' status count, which only covers
+    addresses that already have a record explicitly marked available."""
+    service = _build_service()
+    return await service.list_unused_ips(id, page=page, page_size=page_size, search=search)
 
 
 @router.get("", response_model=PaginatedResponse[SubnetDetailResponse])

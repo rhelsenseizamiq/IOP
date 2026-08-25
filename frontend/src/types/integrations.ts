@@ -78,6 +78,35 @@ export interface Device42ImportResult {
   errors: string[];
 }
 
+// ── Zabbix ────────────────────────────────────────────────────────────────────
+// Credentials are server-configured only — never sent from the browser.
+
+export interface ZabbixDiscoverRequest {
+  limit?: number;
+}
+
+export interface ZabbixHost {
+  ip_address: string;
+  hostname: string | null;
+  device_name: string | null;
+  zabbix_status: string; // "enabled" | "disabled"
+  available: boolean;
+}
+
+export interface ZabbixImportIP {
+  ip_address: string;
+  subnet_id: string;
+  hostname?: string;
+  environment?: string;
+  device_name?: string;
+}
+
+export interface ZabbixImportResult {
+  created: number;
+  skipped: number;
+  errors: string[];
+}
+
 // ── PaloAlto ──────────────────────────────────────────────────────────────────
 
 export interface PaloAltoDiscoverRequest {
@@ -141,4 +170,13 @@ export interface PingResult {
   latency_ms: number | null;
   status_updated: boolean;
   new_status: string | null;
+  scan_source: string | null;
+  device_name: string | null;
 }
+
+export type ScanSource =
+  | "ens192"
+  | "ens224"
+  | "device42"
+  | "zabbix"
+  | "paloalto";

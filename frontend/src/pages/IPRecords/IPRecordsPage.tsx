@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -20,7 +20,7 @@ import {
   message,
   notification,
   Progress,
-} from 'antd';
+} from "antd";
 const { useWatch } = Form;
 import {
   ApartmentOutlined,
@@ -38,19 +38,19 @@ import {
   UploadOutlined,
   WifiOutlined,
   LoadingOutlined,
-} from '@ant-design/icons';
-import type { MenuProps } from 'antd';
-import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
-import type { TableRowSelection } from 'antd/es/table/interface';
-import { ipRecordsApi } from '../../api/ipRecords';
-import type { BulkUpdateFields } from '../../api/ipRecords';
-import { subnetsApi } from '../../api/subnets';
-import ExportModal from './ExportModal';
-import ImportModal from './ImportModal';
-import IPRecordHistoryDrawer from './IPRecordHistoryDrawer';
-import { useAuth } from '../../context/AuthContext';
-import StatusBadge from '../../components/common/StatusBadge';
-import OSIcon from '../../components/common/OSIcon';
+} from "@ant-design/icons";
+import type { MenuProps } from "antd";
+import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
+import type { TableRowSelection } from "antd/es/table/interface";
+import { ipRecordsApi } from "../../api/ipRecords";
+import type { BulkUpdateFields } from "../../api/ipRecords";
+import { subnetsApi } from "../../api/subnets";
+import ExportModal from "./ExportModal";
+import ImportModal from "./ImportModal";
+import IPRecordHistoryDrawer from "./IPRecordHistoryDrawer";
+import { useAuth } from "../../context/AuthContext";
+import StatusBadge from "../../components/common/StatusBadge";
+import OSIcon from "../../components/common/OSIcon";
 import type {
   IPRecord,
   IPRecordCreate,
@@ -59,24 +59,34 @@ import type {
   OSType,
   Environment,
   IPRecordFilters,
-} from '../../types/ipRecord';
-import type { SubnetDetail, SubnetCreate } from '../../types/subnet';
-import { ENV_OPTIONS, ENV_COLOR } from '../../constants/environments';
+} from "../../types/ipRecord";
+import type { SubnetDetail, SubnetCreate } from "../../types/subnet";
+import type { ScanSource } from "../../types/integrations";
+import { ENV_OPTIONS, ENV_COLOR } from "../../constants/environments";
 
-const OS_OPTIONS: OSType[] = ['AIX', 'Linux', 'Windows', 'macOS', 'OpenShift', 'Unknown'];
-const STATUS_OPTIONS: IPStatus[] = ['Free', 'Reserved', 'In Use'];
+const OS_OPTIONS: OSType[] = [
+  "AIX",
+  "Linux",
+  "Windows",
+  "macOS",
+  "OpenShift",
+  "Unknown",
+];
+const STATUS_OPTIONS: IPStatus[] = ["Free", "Reserved", "In Use"];
 const PAGE_SIZE = 20;
 
 function isIPv6(ip: string): boolean {
-  return ip.includes(':');
+  return ip.includes(":");
 }
 
 function ipv4ToInt(ip: string): number {
-  return ip.split('.').reduce((acc, octet) => ((acc << 8) + parseInt(octet, 10)) >>> 0, 0);
+  return ip
+    .split(".")
+    .reduce((acc, octet) => ((acc << 8) + parseInt(octet, 10)) >>> 0, 0);
 }
 
 function isIPInCIDR(ip: string, cidr: string): boolean {
-  const [network, prefixStr] = cidr.split('/');
+  const [network, prefixStr] = cidr.split("/");
   const prefix = parseInt(prefixStr, 10);
   if (isIPv6(ip) || isIPv6(network)) {
     // For IPv6, rely on server-side validation; client-side just allow it
@@ -88,11 +98,14 @@ function isIPInCIDR(ip: string, cidr: string): boolean {
 
 function suggestCIDR(ip: string): string {
   if (isIPv6(ip)) {
-    const groups = ip.split(':');
-    const prefix = groups.slice(0, 4).map((g) => g || '0').join(':');
+    const groups = ip.split(":");
+    const prefix = groups
+      .slice(0, 4)
+      .map((g) => g || "0")
+      .join(":");
     return `${prefix}::/64`;
   }
-  const parts = ip.split('.');
+  const parts = ip.split(".");
   if (parts.length !== 4) return `${ip}/24`;
   return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
 }
@@ -100,9 +113,9 @@ function suggestCIDR(ip: string): string {
 const IPRecordsPage: React.FC = () => {
   const { hasRole } = useAuth();
   const [searchParams] = useSearchParams();
-  const initSubnetId = searchParams.get('subnet_id') ?? undefined;
-  const initStatus = searchParams.get('status') ?? undefined;
-  const initSearch = searchParams.get('search') ?? undefined;
+  const initSubnetId = searchParams.get("subnet_id") ?? undefined;
+  const initStatus = searchParams.get("status") ?? undefined;
+  const initSearch = searchParams.get("search") ?? undefined;
 
   const [records, setRecords] = useState<IPRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -111,10 +124,10 @@ const IPRecordsPage: React.FC = () => {
   const [subnets, setSubnets] = useState<SubnetDetail[]>([]);
   const [filters, setFilters] = useState<IPRecordFilters>({
     subnet_id: initSubnetId,
-    status: initStatus as IPRecordFilters['status'],
+    status: initStatus as IPRecordFilters["status"],
     search: initSearch,
   });
-  const [searchText, setSearchText] = useState(initSearch ?? '');
+  const [searchText, setSearchText] = useState(initSearch ?? "");
 
   // Create/edit modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -140,8 +153,8 @@ const IPRecordsPage: React.FC = () => {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkForm] = Form.useForm<BulkUpdateFields>();
   const [form] = Form.useForm<IPRecordCreate & IPRecordUpdate>();
-  const watchedSubnetId = useWatch('subnet_id', form) as string | undefined;
-  const watchedIP = useWatch('ip_address', form) as string | undefined;
+  const watchedSubnetId = useWatch("subnet_id", form) as string | undefined;
+  const watchedIP = useWatch("ip_address", form) as string | undefined;
   const selectedSubnet = subnets.find((s) => s.id === watchedSubnetId);
 
   // Quick create-subnet modal (triggered when IP doesn't fit any existing subnet)
@@ -150,7 +163,9 @@ const IPRecordsPage: React.FC = () => {
   const [quickSubnetForm] = Form.useForm<SubnetCreate>();
 
   const ipOutsideSubnet =
-    !!watchedIP && !!selectedSubnet && !isIPInCIDR(watchedIP, selectedSubnet.cidr);
+    !!watchedIP &&
+    !!selectedSubnet &&
+    !isIPInCIDR(watchedIP, selectedSubnet.cidr);
 
   const fetchSubnets = useCallback(async (): Promise<void> => {
     try {
@@ -165,17 +180,28 @@ const IPRecordsPage: React.FC = () => {
     async (page: number, activeFilters: IPRecordFilters): Promise<void> => {
       setLoading(true);
       try {
-        const res = await ipRecordsApi.list({ ...activeFilters, page, page_size: PAGE_SIZE });
+        const res = await ipRecordsApi.list({
+          ...activeFilters,
+          page,
+          page_size: PAGE_SIZE,
+        });
         setRecords(res.data.items);
         setTotal(res.data.total);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Failed to load IP records');
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
+        message.error(
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Failed to load IP records",
+        );
       } finally {
         setLoading(false);
       }
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -196,18 +222,34 @@ const IPRecordsPage: React.FC = () => {
       setFilters((prev) => ({ ...prev, [field]: value || undefined }));
       setCurrentPage(1);
     },
-    []
+    [],
   );
 
-  const handleTableChange = useCallback((pagination: TablePaginationConfig): void => {
-    setCurrentPage(pagination.current ?? 1);
-  }, []);
+  const handleTableChange = useCallback(
+    (pagination: TablePaginationConfig): void => {
+      setCurrentPage(pagination.current ?? 1);
+    },
+    [],
+  );
 
   const openCreate = useCallback((): void => {
     setEditingRecord(null);
     form.resetFields();
     setModalOpen(true);
   }, [form]);
+
+  // Support deep-linking from the Unused IPs page: ?open_create=1&subnet_id=X&ip=Y
+  useEffect(() => {
+    if (searchParams.get("open_create") !== "1") return;
+    setEditingRecord(null);
+    form.resetFields();
+    const prefillSubnet = searchParams.get("subnet_id");
+    const prefillIp = searchParams.get("ip");
+    if (prefillSubnet) form.setFieldValue("subnet_id", prefillSubnet);
+    if (prefillIp) form.setFieldValue("ip_address", prefillIp);
+    setModalOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openEdit = useCallback(
     (record: IPRecord): void => {
@@ -224,16 +266,16 @@ const IPRecordsPage: React.FC = () => {
       });
       setModalOpen(true);
     },
-    [form]
+    [form],
   );
 
   const openQuickSubnet = useCallback((): void => {
-    const ip = form.getFieldValue('ip_address') as string | undefined;
-    const env = form.getFieldValue('environment') as string | undefined;
+    const ip = form.getFieldValue("ip_address") as string | undefined;
+    const env = form.getFieldValue("environment") as string | undefined;
     quickSubnetForm.setFieldsValue({
-      cidr: ip ? suggestCIDR(ip) : '',
-      name: '',
-      environment: (env as SubnetCreate['environment']) ?? 'Production',
+      cidr: ip ? suggestCIDR(ip) : "",
+      name: "",
+      environment: (env as SubnetCreate["environment"]) ?? "Production",
       ip_version: ip && isIPv6(ip) ? 6 : 4,
     });
     setQuickSubnetOpen(true);
@@ -245,18 +287,25 @@ const IPRecordsPage: React.FC = () => {
       try {
         const res = await subnetsApi.create(values);
         await fetchSubnets();
-        form.setFieldValue('subnet_id', res.data.id);
+        form.setFieldValue("subnet_id", res.data.id);
         setQuickSubnetOpen(false);
         quickSubnetForm.resetFields();
         message.success(`Subnet ${res.data.cidr} created and selected`);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Failed to create subnet');
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
+        message.error(
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Failed to create subnet",
+        );
       } finally {
         setQuickSubnetSubmitting(false);
       }
     },
-    [form, quickSubnetForm, fetchSubnets]
+    [form, quickSubnetForm, fetchSubnets],
   );
 
   const handleSubmit = useCallback(
@@ -273,7 +322,7 @@ const IPRecordsPage: React.FC = () => {
             description: values.description,
           };
           await ipRecordsApi.update(editingRecord.id, update);
-          message.success('IP record updated');
+          message.success("IP record updated");
         } else {
           const create: IPRecordCreate = {
             ip_address: values.ip_address,
@@ -286,15 +335,24 @@ const IPRecordsPage: React.FC = () => {
             description: values.description,
           };
           await ipRecordsApi.create(create);
-          message.success('IP record created');
+          message.success("IP record created");
         }
         setModalOpen(false);
         form.resetFields();
         void fetchRecords(currentPage, filters);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        const detail = axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Operation failed';
-        if (typeof detail === 'string' && detail.toLowerCase().includes('not within')) {
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
+        const detail =
+          axiosErr.response?.data?.detail ??
+          axiosErr.message ??
+          "Operation failed";
+        if (
+          typeof detail === "string" &&
+          detail.toLowerCase().includes("not within")
+        ) {
           // Backend rejected because IP doesn't fall inside the selected subnet
           openQuickSubnet();
         } else {
@@ -304,53 +362,74 @@ const IPRecordsPage: React.FC = () => {
         setSubmitting(false);
       }
     },
-    [editingRecord, currentPage, filters, fetchRecords, form, openQuickSubnet]
+    [editingRecord, currentPage, filters, fetchRecords, form, openQuickSubnet],
   );
 
   const handleDelete = useCallback(
     async (id: string): Promise<void> => {
       try {
         await ipRecordsApi.delete(id);
-        message.success('IP record deleted');
+        message.success("IP record deleted");
         void fetchRecords(currentPage, filters);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Delete failed');
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
+        message.error(
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Delete failed",
+        );
       }
     },
-    [currentPage, filters, fetchRecords]
+    [currentPage, filters, fetchRecords],
   );
 
   const handleReserve = useCallback(
     async (id: string): Promise<void> => {
       try {
         await ipRecordsApi.reserve(id);
-        message.success('IP reserved');
+        message.success("IP reserved");
         void fetchRecords(currentPage, filters);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Reserve failed');
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
+        message.error(
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Reserve failed",
+        );
       }
     },
-    [currentPage, filters, fetchRecords]
+    [currentPage, filters, fetchRecords],
   );
 
   const handleRelease = useCallback(
     async (id: string): Promise<void> => {
       try {
         await ipRecordsApi.release(id);
-        message.success('IP released');
+        message.success("IP released");
         void fetchRecords(currentPage, filters);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Release failed');
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
+        message.error(
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Release failed",
+        );
       }
     },
-    [currentPage, filters, fetchRecords]
+    [currentPage, filters, fetchRecords],
   );
 
   const handlePing = useCallback(
-    async (record: IPRecord): Promise<void> => {
+    async (record: IPRecord, scanSource?: ScanSource): Promise<void> => {
       setPingingId(record.id);
       setPingTarget(record.ip_address);
       setPingProgress(0);
@@ -361,36 +440,76 @@ const IPRecordsPage: React.FC = () => {
         setPingProgress(Math.round(prog));
       }, 220);
       try {
-        const res = await ipRecordsApi.ping(record.id, true);
-        if (pingTimerRef.current) { clearInterval(pingTimerRef.current); pingTimerRef.current = null; }
+        const res = await ipRecordsApi.ping(record.id, true, scanSource);
+        if (pingTimerRef.current) {
+          clearInterval(pingTimerRef.current);
+          pingTimerRef.current = null;
+        }
         setPingProgress(100);
-        const { reachable, latency_ms, method, status_updated, new_status } = res.data;
+        const {
+          reachable,
+          latency_ms,
+          method,
+          status_updated,
+          new_status,
+          scan_source,
+          device_name,
+        } = res.data;
+        const sourceLabel = scan_source ? ` · via ${scan_source}` : "";
+        const isDevice42 = scan_source === "device42";
+        const isZabbix = scan_source === "zabbix";
+        const isInventorySource = isDevice42 || isZabbix;
+        const sourceName = isDevice42 ? "Device42" : "Zabbix";
         if (reachable) {
           notification.success({
-            message: `${record.ip_address} is reachable`,
-            description: status_updated
-              ? `Status updated to ${new_status ?? 'In Use'} · Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ''}`
-              : `Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ''}`,
-            icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
-            duration: 5,
+            message: isInventorySource
+              ? isZabbix
+                ? `${record.ip_address} is up in Zabbix`
+                : `${record.ip_address} is assigned in Device42`
+              : `${record.ip_address} is reachable`,
+            description: isInventorySource
+              ? `Device: ${device_name ?? "unknown"}${status_updated ? ` · Status updated to ${new_status ?? "In Use"}` : ""}`
+              : status_updated
+                ? `Status updated to ${new_status ?? "In Use"} · Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ""}${sourceLabel}`
+                : `Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ""}${sourceLabel}`,
+            icon: <CheckCircleOutlined style={{ color: "#52c41a" }} />,
+            duration: 6,
           });
         } else {
           notification.warning({
-            message: `${record.ip_address} did not respond`,
-            description: status_updated
-              ? `Status updated to ${new_status ?? 'Free'} — IP is available for use`
-              : 'IP does not appear to be in use',
-            icon: <CloseCircleOutlined style={{ color: '#faad14' }} />,
-            duration: 6,
+            message: isInventorySource
+              ? `No ${sourceName} record for ${record.ip_address}`
+              : `${record.ip_address} did not respond`,
+            description: isInventorySource
+              ? isZabbix
+                ? "Zabbix has no host on this address, or it's currently reporting down — this does not necessarily mean it's unused. Status was not changed."
+                : "Device42 has no device assigned to this address — this does not necessarily mean it's unused (e.g. assets tracked outside Device42). Status was not changed."
+              : (status_updated
+                  ? `Status updated to ${new_status ?? "Free"} — IP is available for use`
+                  : "IP does not appear to be in use") + sourceLabel,
+            icon: (
+              <CloseCircleOutlined
+                style={{ color: isInventorySource ? "#8c8c8c" : "#faad14" }}
+              />
+            ),
+            duration: 7,
           });
         }
         if (status_updated) {
           void fetchRecords(currentPage, filters);
         }
       } catch (err: unknown) {
-        if (pingTimerRef.current) { clearInterval(pingTimerRef.current); pingTimerRef.current = null; }
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        void message.error(axiosErr.response?.data?.detail ?? 'Ping check failed');
+        if (pingTimerRef.current) {
+          clearInterval(pingTimerRef.current);
+          pingTimerRef.current = null;
+        }
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
+        void message.error(
+          axiosErr.response?.data?.detail ?? "Ping check failed",
+        );
       } finally {
         setTimeout(() => {
           setPingingId(null);
@@ -399,7 +518,7 @@ const IPRecordsPage: React.FC = () => {
         }, 900);
       }
     },
-    [currentPage, filters, fetchRecords]
+    [currentPage, filters, fetchRecords],
   );
 
   const handleBulkReserve = useCallback(async (): Promise<void> => {
@@ -410,8 +529,15 @@ const IPRecordsPage: React.FC = () => {
       setSelectedRowKeys([]);
       void fetchRecords(currentPage, filters);
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Bulk reserve failed');
+      const axiosErr = err as {
+        response?: { data?: { detail?: string } };
+        message?: string;
+      };
+      message.error(
+        axiosErr.response?.data?.detail ??
+          axiosErr.message ??
+          "Bulk reserve failed",
+      );
     }
   }, [selectedRowKeys, currentPage, filters, fetchRecords]);
 
@@ -423,8 +549,15 @@ const IPRecordsPage: React.FC = () => {
       setSelectedRowKeys([]);
       void fetchRecords(currentPage, filters);
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Bulk release failed');
+      const axiosErr = err as {
+        response?: { data?: { detail?: string } };
+        message?: string;
+      };
+      message.error(
+        axiosErr.response?.data?.detail ??
+          axiosErr.message ??
+          "Bulk release failed",
+      );
     }
   }, [selectedRowKeys, currentPage, filters, fetchRecords]);
 
@@ -435,7 +568,8 @@ const IPRecordsPage: React.FC = () => {
       try {
         const fields: BulkUpdateFields = {};
         if (values.environment) fields.environment = values.environment;
-        if (values.owner !== undefined && values.owner !== '') fields.owner = values.owner;
+        if (values.owner !== undefined && values.owner !== "")
+          fields.owner = values.owner;
         if (values.os_type) fields.os_type = values.os_type;
         await ipRecordsApi.bulkUpdate(ids, fields);
         message.success(`Updated ${ids.length} records`);
@@ -444,13 +578,20 @@ const IPRecordsPage: React.FC = () => {
         setSelectedRowKeys([]);
         void fetchRecords(currentPage, filters);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Bulk update failed');
+        const axiosErr = err as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
+        message.error(
+          axiosErr.response?.data?.detail ??
+            axiosErr.message ??
+            "Bulk update failed",
+        );
       } finally {
         setBulkSubmitting(false);
       }
     },
-    [selectedRowKeys, currentPage, filters, fetchRecords, bulkForm]
+    [selectedRowKeys, currentPage, filters, fetchRecords, bulkForm],
   );
 
   const rowSelection: TableRowSelection<IPRecord> = {
@@ -460,36 +601,74 @@ const IPRecordsPage: React.FC = () => {
 
   const subnetMap = React.useMemo(
     () => new Map(subnets.map((s) => [s.id, s.cidr])),
-    [subnets]
+    [subnets],
   );
 
   const columns: ColumnsType<IPRecord> = [
     {
-      title: 'IP Address',
-      dataIndex: 'ip_address',
-      key: 'ip_address',
+      title: "IP Address",
+      dataIndex: "ip_address",
+      key: "ip_address",
       width: 160,
       render: (v: string, record: IPRecord) => {
-        const contextMenuItems: MenuProps['items'] = [
+        const contextMenuItems: MenuProps["items"] = [
           {
-            key: 'ping',
-            label: pingingId === record.id ? (
-              <Space><Spin size="small" /><span>Checking...</span></Space>
-            ) : (
-              <Space><WifiOutlined /><span>Check Availability</span></Space>
-            ),
+            key: "ping",
+            label:
+              pingingId === record.id ? (
+                <Space>
+                  <Spin size="small" />
+                  <span>Checking...</span>
+                </Space>
+              ) : (
+                <Space>
+                  <WifiOutlined />
+                  <span>Check Availability</span>
+                </Space>
+              ),
             disabled: pingingId === record.id,
-            onClick: () => void handlePing(record),
+            children: [
+              {
+                key: "ping-ens192",
+                label: "ens192 (172.31.3.166)",
+                onClick: () => void handlePing(record, "ens192"),
+              },
+              {
+                key: "ping-ens224",
+                label: "ens224 (10.160.30.22)",
+                onClick: () => void handlePing(record, "ens224"),
+              },
+              {
+                key: "ping-device42",
+                label: "Device42",
+                onClick: () => void handlePing(record, "device42"),
+              },
+              {
+                key: "ping-zabbix",
+                label: "Zabbix",
+                onClick: () => void handlePing(record, "zabbix"),
+              },
+              {
+                key: "ping-paloalto",
+                label: "PaloAlto",
+                disabled: true,
+              },
+            ],
           },
         ];
         return (
-          <Dropdown menu={{ items: contextMenuItems }} trigger={['contextMenu']}>
-            <Tooltip title={record.description ? `${record.description} — right-click for more` : 'Right-click for options'}>
-              <Typography.Text
-                copyable
-                code
-                style={{ cursor: 'context-menu' }}
-              >
+          <Dropdown
+            menu={{ items: contextMenuItems }}
+            trigger={["contextMenu"]}
+          >
+            <Tooltip
+              title={
+                record.description
+                  ? `${record.description} — right-click for more`
+                  : "Right-click for options"
+              }
+            >
+              <Typography.Text copyable code style={{ cursor: "context-menu" }}>
                 {v}
               </Typography.Text>
             </Tooltip>
@@ -498,52 +677,54 @@ const IPRecordsPage: React.FC = () => {
       },
     },
     {
-      title: 'Hostname',
-      dataIndex: 'hostname',
-      key: 'hostname',
-      render: (v: string | null) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
+      title: "Hostname",
+      dataIndex: "hostname",
+      key: "hostname",
+      render: (v: string | null) =>
+        v ?? <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
-      title: 'OS',
-      dataIndex: 'os_type',
-      key: 'os_type',
+      title: "OS",
+      dataIndex: "os_type",
+      key: "os_type",
       width: 110,
       render: (v: OSType) => <OSIcon osType={v} />,
     },
     {
-      title: 'Subnet',
-      dataIndex: 'subnet_id',
-      key: 'subnet_id',
+      title: "Subnet",
+      dataIndex: "subnet_id",
+      key: "subnet_id",
       width: 150,
       render: (id: string) => (
         <Typography.Text code>{subnetMap.get(id) ?? id}</Typography.Text>
       ),
     },
     {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
+      title: "Status",
+      dataIndex: "status",
+      key: "status",
       width: 110,
       render: (v: IPStatus) => <StatusBadge status={v} />,
     },
     {
-      title: 'Environment',
-      dataIndex: 'environment',
-      key: 'environment',
+      title: "Environment",
+      dataIndex: "environment",
+      key: "environment",
       width: 120,
       render: (v: Environment) => <Tag color={ENV_COLOR[v]}>{v}</Tag>,
     },
     {
-      title: 'Owner',
-      dataIndex: 'owner',
-      key: 'owner',
-      render: (v: string | null) => v ?? <Typography.Text type="secondary">—</Typography.Text>,
+      title: "Owner",
+      dataIndex: "owner",
+      key: "owner",
+      render: (v: string | null) =>
+        v ?? <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
-      title: 'Actions',
-      key: 'actions',
+      title: "Actions",
+      key: "actions",
       width: 160,
-      fixed: 'right',
+      fixed: "right",
       render: (_, record) => (
         <Space size={4}>
           <Tooltip title="History">
@@ -553,7 +734,7 @@ const IPRecordsPage: React.FC = () => {
               onClick={() => setHistoryRecord(record)}
             />
           </Tooltip>
-          {hasRole('Operator') && record.status === 'Free' && (
+          {hasRole("Operator") && record.status === "Free" && (
             <Tooltip title="Reserve">
               <Button
                 size="small"
@@ -562,7 +743,7 @@ const IPRecordsPage: React.FC = () => {
               />
             </Tooltip>
           )}
-          {hasRole('Operator') && record.status === 'Reserved' && (
+          {hasRole("Operator") && record.status === "Reserved" && (
             <Tooltip title="Release">
               <Button
                 size="small"
@@ -571,7 +752,7 @@ const IPRecordsPage: React.FC = () => {
               />
             </Tooltip>
           )}
-          {hasRole('Operator') && (
+          {hasRole("Operator") && (
             <Tooltip title="Edit">
               <Button
                 size="small"
@@ -580,7 +761,7 @@ const IPRecordsPage: React.FC = () => {
               />
             </Tooltip>
           )}
-          {hasRole('Administrator') && (
+          {hasRole("Administrator") && (
             <Popconfirm
               title="Delete this IP record?"
               onConfirm={() => void handleDelete(record.id)}
@@ -601,9 +782,9 @@ const IPRecordsPage: React.FC = () => {
     <div>
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
           marginBottom: 16,
         }}
       >
@@ -618,15 +799,21 @@ const IPRecordsPage: React.FC = () => {
           >
             Refresh
           </Button>
-          <Button icon={<DownloadOutlined />} onClick={() => setExportOpen(true)}>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={() => setExportOpen(true)}
+          >
             Export
           </Button>
-          {hasRole('Operator') && (
-            <Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
+          {hasRole("Operator") && (
+            <Button
+              icon={<UploadOutlined />}
+              onClick={() => setImportOpen(true)}
+            >
               Import
             </Button>
           )}
-          {hasRole('Operator') && (
+          {hasRole("Operator") && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               Add IP
             </Button>
@@ -646,7 +833,7 @@ const IPRecordsPage: React.FC = () => {
             prefix={<SearchOutlined />}
             allowClear
             onClear={() => {
-              setSearchText('');
+              setSearchText("");
               setFilters((prev) => ({ ...prev, search: undefined }));
               setCurrentPage(1);
             }}
@@ -656,8 +843,10 @@ const IPRecordsPage: React.FC = () => {
           <Select
             placeholder="Status"
             allowClear
-            style={{ width: '100%' }}
-            onChange={(v) => handleFilterChange('status', v as string | undefined)}
+            style={{ width: "100%" }}
+            onChange={(v) =>
+              handleFilterChange("status", v as string | undefined)
+            }
           >
             {STATUS_OPTIONS.map((s) => (
               <Select.Option key={s} value={s}>
@@ -670,8 +859,10 @@ const IPRecordsPage: React.FC = () => {
           <Select
             placeholder="OS Type"
             allowClear
-            style={{ width: '100%' }}
-            onChange={(v) => handleFilterChange('os_type', v as string | undefined)}
+            style={{ width: "100%" }}
+            onChange={(v) =>
+              handleFilterChange("os_type", v as string | undefined)
+            }
           >
             {OS_OPTIONS.map((o) => (
               <Select.Option key={o} value={o}>
@@ -684,8 +875,10 @@ const IPRecordsPage: React.FC = () => {
           <Select
             placeholder="Environment"
             allowClear
-            style={{ width: '100%' }}
-            onChange={(v) => handleFilterChange('environment', v as string | undefined)}
+            style={{ width: "100%" }}
+            onChange={(v) =>
+              handleFilterChange("environment", v as string | undefined)
+            }
           >
             {ENV_OPTIONS.map((e) => (
               <Select.Option key={e} value={e}>
@@ -699,10 +892,12 @@ const IPRecordsPage: React.FC = () => {
             placeholder="Subnet"
             allowClear
             value={filters.subnet_id}
-            style={{ width: '100%' }}
+            style={{ width: "100%" }}
             showSearch
             optionFilterProp="children"
-            onChange={(v) => handleFilterChange('subnet_id', v as string | undefined)}
+            onChange={(v) =>
+              handleFilterChange("subnet_id", v as string | undefined)
+            }
           >
             {subnets.map((s) => (
               <Select.Option key={s.id} value={s.id}>
@@ -713,19 +908,33 @@ const IPRecordsPage: React.FC = () => {
         </Col>
       </Row>
 
-      {selectedRowKeys.length > 0 && hasRole('Operator') && (
+      {selectedRowKeys.length > 0 && hasRole("Operator") && (
         <Alert
           style={{ marginBottom: 8 }}
           message={
             <Space wrap>
-              <Typography.Text strong>{selectedRowKeys.length} record(s) selected</Typography.Text>
-              <Button size="small" icon={<LockOutlined />} onClick={() => void handleBulkReserve()}>
+              <Typography.Text strong>
+                {selectedRowKeys.length} record(s) selected
+              </Typography.Text>
+              <Button
+                size="small"
+                icon={<LockOutlined />}
+                onClick={() => void handleBulkReserve()}
+              >
                 Reserve
               </Button>
-              <Button size="small" icon={<UnlockOutlined />} onClick={() => void handleBulkRelease()}>
+              <Button
+                size="small"
+                icon={<UnlockOutlined />}
+                onClick={() => void handleBulkRelease()}
+              >
                 Release
               </Button>
-              <Button size="small" icon={<EditOutlined />} onClick={() => setBulkModalOpen(true)}>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => setBulkModalOpen(true)}
+              >
                 Update Fields
               </Button>
               <Button size="small" onClick={() => setSelectedRowKeys([])}>
@@ -797,14 +1006,18 @@ const IPRecordsPage: React.FC = () => {
           <Form.Item label="Environment" name="environment">
             <Select allowClear placeholder="(no change)">
               {ENV_OPTIONS.map((e) => (
-                <Select.Option key={e} value={e}>{e}</Select.Option>
+                <Select.Option key={e} value={e}>
+                  {e}
+                </Select.Option>
               ))}
             </Select>
           </Form.Item>
           <Form.Item label="OS Type" name="os_type">
             <Select allowClear placeholder="(no change)">
               {OS_OPTIONS.map((o) => (
-                <Select.Option key={o} value={o}>{o}</Select.Option>
+                <Select.Option key={o} value={o}>
+                  {o}
+                </Select.Option>
               ))}
             </Select>
           </Form.Item>
@@ -816,14 +1029,14 @@ const IPRecordsPage: React.FC = () => {
 
       {/* Create / Edit modal */}
       <Modal
-        title={editingRecord ? 'Edit IP Record' : 'Add IP Record'}
+        title={editingRecord ? "Edit IP Record" : "Add IP Record"}
         open={modalOpen}
         onCancel={() => {
           setModalOpen(false);
           form.resetFields();
         }}
         onOk={() => form.submit()}
-        okText={editingRecord ? 'Save' : 'Create'}
+        okText={editingRecord ? "Save" : "Create"}
         confirmLoading={submitting}
         width={560}
         destroyOnClose
@@ -837,16 +1050,23 @@ const IPRecordsPage: React.FC = () => {
           <Form.Item
             label="IP Address"
             name="ip_address"
-            extra={selectedSubnet && !ipOutsideSubnet ? `Must be within ${selectedSubnet.cidr}` : undefined}
+            extra={
+              selectedSubnet && !ipOutsideSubnet
+                ? `Must be within ${selectedSubnet.cidr}`
+                : undefined
+            }
             rules={[
-              { required: true, message: 'IP address is required' },
+              { required: true, message: "IP address is required" },
               {
                 validator(_rule, value: string) {
                   if (!value) return Promise.resolve();
                   const ipv4Re = /^(\d{1,3}\.){3}\d{1,3}$/;
                   const ipv6Re = /^[0-9a-fA-F:]+$/;
-                  if (ipv4Re.test(value) || ipv6Re.test(value)) return Promise.resolve();
-                  return Promise.reject(new Error('Enter a valid IPv4 or IPv6 address'));
+                  if (ipv4Re.test(value) || ipv6Re.test(value))
+                    return Promise.resolve();
+                  return Promise.reject(
+                    new Error("Enter a valid IPv4 or IPv6 address"),
+                  );
                 },
               },
             ]}
@@ -890,7 +1110,7 @@ const IPRecordsPage: React.FC = () => {
               <Form.Item
                 label="OS Type"
                 name="os_type"
-                rules={[{ required: true, message: 'OS type is required' }]}
+                rules={[{ required: true, message: "OS type is required" }]}
               >
                 <Select>
                   {OS_OPTIONS.map((o) => (
@@ -905,7 +1125,7 @@ const IPRecordsPage: React.FC = () => {
               <Form.Item
                 label="Environment"
                 name="environment"
-                rules={[{ required: true, message: 'Environment is required' }]}
+                rules={[{ required: true, message: "Environment is required" }]}
               >
                 <Select>
                   {ENV_OPTIONS.map((e) => (
@@ -922,7 +1142,7 @@ const IPRecordsPage: React.FC = () => {
             <Form.Item
               label="Subnet"
               name="subnet_id"
-              rules={[{ required: true, message: 'Subnet is required' }]}
+              rules={[{ required: true, message: "Subnet is required" }]}
             >
               <Select
                 showSearch
@@ -976,13 +1196,15 @@ const IPRecordsPage: React.FC = () => {
         <Form
           form={quickSubnetForm}
           layout="vertical"
-          onFinish={(values) => void handleQuickCreateSubnet(values as SubnetCreate)}
+          onFinish={(values) =>
+            void handleQuickCreateSubnet(values as SubnetCreate)
+          }
           style={{ marginTop: 16 }}
         >
           <Form.Item
             label="CIDR"
             name="cidr"
-            rules={[{ required: true, message: 'CIDR is required' }]}
+            rules={[{ required: true, message: "CIDR is required" }]}
             extra="Auto-suggested from the IP address — adjust if needed"
           >
             <Input placeholder="e.g. 10.0.1.0/24" />
@@ -990,16 +1212,22 @@ const IPRecordsPage: React.FC = () => {
           <Form.Item
             label="Subnet Name"
             name="name"
-            rules={[{ required: true, message: 'Name is required' }]}
+            rules={[{ required: true, message: "Name is required" }]}
           >
             <Input placeholder="e.g. Server LAN" />
           </Form.Item>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item label="Environment" name="environment" initialValue="Production">
+              <Form.Item
+                label="Environment"
+                name="environment"
+                initialValue="Production"
+              >
                 <Select>
                   {ENV_OPTIONS.map((e) => (
-                    <Select.Option key={e} value={e}>{e}</Select.Option>
+                    <Select.Option key={e} value={e}>
+                      {e}
+                    </Select.Option>
                   ))}
                 </Select>
               </Form.Item>
@@ -1027,14 +1255,17 @@ const IPRecordsPage: React.FC = () => {
         centered
         title={
           <Space>
-            <WifiOutlined style={{ color: '#1677ff' }} />
+            <WifiOutlined style={{ color: "#1677ff" }} />
             <span>Checking Availability</span>
           </Space>
         }
       >
-        <div style={{ textAlign: 'center', padding: '20px 0 8px' }}>
-          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
-            Probing{' '}
+        <div style={{ textAlign: "center", padding: "20px 0 8px" }}>
+          <Typography.Text
+            type="secondary"
+            style={{ display: "block", marginBottom: 20 }}
+          >
+            Probing{" "}
             <Typography.Text code strong>
               {pingTarget}
             </Typography.Text>
@@ -1043,24 +1274,26 @@ const IPRecordsPage: React.FC = () => {
           <Progress
             type="circle"
             percent={pingProgress}
-            status={pingProgress < 100 ? 'active' : 'success'}
-            strokeColor={pingProgress < 100 ? '#1677ff' : '#52c41a'}
+            status={pingProgress < 100 ? "active" : "success"}
+            strokeColor={pingProgress < 100 ? "#1677ff" : "#52c41a"}
             size={90}
             format={(pct) =>
               pingProgress < 100 ? (
                 <span style={{ fontSize: 13 }}>
-                  <LoadingOutlined style={{ color: '#1677ff' }} />
+                  <LoadingOutlined style={{ color: "#1677ff" }} />
                   <br />
-                  <span style={{ fontSize: 11, color: '#888' }}>{pct}%</span>
+                  <span style={{ fontSize: 11, color: "#888" }}>{pct}%</span>
                 </span>
               ) : (
-                <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 28 }} />
+                <CheckCircleOutlined
+                  style={{ color: "#52c41a", fontSize: 28 }}
+                />
               )
             }
           />
           <div style={{ marginTop: 16 }}>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {pingProgress < 100 ? 'Sending ICMP / TCP probes…' : 'Done'}
+              {pingProgress < 100 ? "Sending ICMP / TCP probes…" : "Done"}
             </Typography.Text>
           </div>
         </div>

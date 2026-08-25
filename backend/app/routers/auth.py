@@ -119,6 +119,7 @@ async def me(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("20/minute")
 async def refresh_token(
     request: Request,
     response: Response,
@@ -149,6 +150,7 @@ async def auth_config(
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
 async def change_password(
     request: Request,
     body: ChangePasswordRequest,
@@ -172,7 +174,9 @@ class RoleUpgradeRequest(BaseModel):
 
 
 @router.post("/request-role", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
 async def request_role_upgrade(
+    request: Request,
     body: RoleUpgradeRequest,
     current_user: UserInToken = Depends(get_current_user),
 ) -> None:

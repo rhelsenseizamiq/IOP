@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import io
+import ipaddress
 import logging
 import re
 import subprocess
@@ -525,6 +526,91 @@ class PingResult(BaseModel):
     latency_ms: Optional[float] = None
     status_updated: bool = False
     new_status: Optional[str] = None
+    scan_source: Optional[str] = None
+    device_name: Optional[str] = None
+
+
+# Real, currently-mounted host NICs the scan helper can bind to, plus
+# "device42" (real-time inventory lookup). "paloalto" is accepted here but
+# always rejected below — the UI shows it disabled until it gets its own
+# reachability check.
+_VALID_SCAN_SOURCES = {"ens192", "ens224", "device42", "zabbix", "paloalto"}
+_HOST_NIC_SOURCES = {"ens192", "ens224"}
+
+
+async def _helper_ping(source: str, target_ip: str) -> tuple[bool, Optional[float]]:
+    """Delegates the actual ping to the host-side scan helper (systemd
+    service outside the container) so it goes out the real ens192/ens224
+    interface instead of the container's own bridge/NAT path."""
+    import httpx
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    url = getattr(settings, "SCAN_HELPER_URL", None)
+    token = getattr(settings, "SCAN_HELPER_TOKEN", None)
+    if not url:
+        raise RuntimeError("Scan helper not configured (SCAN_HELPER_URL missing)")
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.post(
+            url,
+            json={"source": source, "target": target_ip},
+            headers={"X-Scan-Token": token} if token else {},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return bool(data.get("reachable")), data.get("latency_ms")
+
+
+async def _device42_lookup(target_ip: str) -> tuple[bool, Optional[str]]:
+    """Real-time Device42 inventory lookup for one IP. Not a network probe —
+    reflects whatever Device42 currently has on record for this address.
+    Returns (in_use, device_name)."""
+    import httpx
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    host = getattr(settings, "DEVICE42_HOST", None)
+    username = getattr(settings, "DEVICE42_USERNAME", None)
+    password = getattr(settings, "DEVICE42_PASSWORD", None)
+    if not host or not username:
+        raise RuntimeError("Device42 not configured (DEVICE42_HOST/USERNAME missing)")
+
+    async with httpx.AsyncClient(
+        auth=(username, password), verify=False, timeout=10.0, follow_redirects=True
+    ) as client:
+        resp = await client.get(f"{host}/api/1.0/ips/", params={"ip": target_ip})
+        resp.raise_for_status()
+        data = resp.json()
+        entries = data.get("ips", [])
+        if not entries:
+            return False, None
+        entry = entries[0]
+        device_name = entry.get("device")
+        # An entry can exist purely as a registered-but-unassigned address
+        # within a known subnet (available="yes", no device) — that's free,
+        # not in use, even though Device42 has a record for it.
+        in_use = bool(device_name) and (entry.get("available") or "no").lower() != "yes"
+        return in_use, device_name if in_use else None
+
+
+async def _zabbix_lookup(target_ip: str) -> tuple[bool, Optional[str]]:
+    """Real-time Zabbix monitoring lookup for one IP. Unlike Device42 (a
+    static inventory), Zabbix actively polls its hosts — 'reachable' here
+    reflects Zabbix's own live availability state, not just presence in
+    inventory. Returns (reachable, device_name)."""
+    from app.config import get_settings
+    from app.services.zabbix_service import ZabbixService
+
+    settings = get_settings()
+    host = getattr(settings, "ZABBIX_HOST", None)
+    token = getattr(settings, "ZABBIX_TOKEN", None)
+    if not host or not token:
+        raise RuntimeError("Zabbix not configured (ZABBIX_HOST/ZABBIX_TOKEN missing)")
+
+    return await ZabbixService.lookup_ip(host=host, token=token, target_ip=target_ip)
 
 
 async def _tcp_probe(ip: str, port: int, timeout: float) -> bool:
@@ -603,18 +689,76 @@ def _icmp_ping_raw(ip: str) -> Optional[float]:
     return None
 
 
+async def _apply_ping_status(
+    record, reachable: bool, id: str, current_user: UserInToken, request: Request, auto_update: bool
+) -> tuple[bool, Optional[str]]:
+    """Shared by every ping strategy: if auto_update, flips In Use <-> Free
+    based on the check result and writes an audit log entry."""
+    from app.models.audit_log import AuditAction, ResourceType
+
+    if not auto_update:
+        return False, None
+
+    target_status = "In Use" if reachable else "Free"
+    if record.status.value == target_status:
+        return False, None
+
+    db = get_database()
+    ip_repo = IPRecordRepository(db["ip_records"])
+    audit_repo = AuditLogRepository(db["audit_logs"])
+    await ip_repo.update(id, {"status": target_status, "updated_by": current_user.sub})
+    detail_msg = (
+        "Auto-updated to In Use: IP responded to availability check"
+        if reachable
+        else "Auto-updated to Free: IP did not respond to availability check"
+    )
+    await audit_repo.log(
+        action=AuditAction.UPDATE,
+        resource_type=ResourceType.IP_RECORD,
+        username=current_user.sub,
+        user_role=current_user.role.value,
+        client_ip=_get_client_ip(request),
+        resource_id=id,
+        before={"status": record.status.value},
+        after={"status": target_status},
+        detail=detail_msg,
+    )
+    return True, target_status
+
+
 @router.post("/{id}/ping", response_model=PingResult)
 async def ping_ip_record(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
     request: Request,
     auto_update: bool = Body(default=True, embed=True),
+    scan_source: Optional[str] = Body(default=None, embed=True),
     current_user: UserInToken = Depends(_OPERATOR_PLUS),
 ) -> PingResult:
     """
     Check whether the IP address is reachable.
     If not reachable and auto_update=true, set status to Free (Available).
+
+    scan_source picks which real network path / source of truth performs
+    the check:
+    - None (default): existing in-container check (subprocess ping -> raw
+      ICMP -> TCP probe), same as before this field existed.
+    - "ens192" / "ens224": delegates to the host-side scan helper so the
+      ping actually leaves via that real interface's own address.
+    - "device42": real-time Device42 inventory lookup (not a network probe)
+      — reports which device the IP is assigned to, or that it's free.
+    - "paloalto": not implemented yet — the UI shows it disabled; rejected
+      here too in case it's ever sent directly.
     """
-    from app.models.audit_log import AuditAction, ResourceType
+    if scan_source is not None and scan_source not in _VALID_SCAN_SOURCES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown scan_source '{scan_source}'",
+        )
+    if scan_source == "paloalto":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Scanning via {scan_source} is not integrated yet",
+        )
 
     service = _build_service()
     record = await service.get_by_id(id)
@@ -623,6 +767,82 @@ async def ping_ip_record(
     reachable = False
     latency_ms: Optional[float] = None
     method = "tcp"
+
+    if scan_source in _HOST_NIC_SOURCES:
+        try:
+            reachable, latency_ms = await _helper_ping(scan_source, ip)
+            method = "icmp"
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Scan helper unreachable: {exc}",
+            ) from exc
+        status_updated, new_status = await _apply_ping_status(
+            record, reachable, id, current_user, request, auto_update
+        )
+        return PingResult(
+            ip_address=ip,
+            reachable=reachable,
+            method=method,
+            latency_ms=latency_ms,
+            status_updated=status_updated,
+            new_status=new_status,
+            scan_source=scan_source,
+        )
+
+    if scan_source == "device42":
+        try:
+            in_use, device_name = await _device42_lookup(ip)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Device42 lookup failed: {exc}",
+            ) from exc
+        # Asymmetric on purpose: Device42 finding a device assigned to this
+        # IP is strong positive evidence, safe to auto-mark In Use. Device42
+        # having NO record is weak evidence at best — Device42's inventory
+        # is not guaranteed complete (e.g. assets imported from elsewhere,
+        # like hosts.txt imports, that were never entered into Device42) —
+        # so a miss here must never auto-flip an existing record to Free.
+        status_updated, new_status = await _apply_ping_status(
+            record, in_use, id, current_user, request, auto_update and in_use
+        )
+        return PingResult(
+            ip_address=ip,
+            reachable=in_use,
+            method="device42",
+            latency_ms=None,
+            status_updated=status_updated,
+            new_status=new_status,
+            scan_source=scan_source,
+            device_name=device_name,
+        )
+
+    if scan_source == "zabbix":
+        try:
+            reachable, device_name = await _zabbix_lookup(ip)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Zabbix lookup failed: {exc}",
+            ) from exc
+        # Same asymmetric rule as Device42, for the same reason: Zabbix
+        # reporting a host reachable is strong positive evidence, but a host
+        # missing from Zabbix (or currently down) is not proof the address
+        # is unused — never auto-flip to Free from this signal alone.
+        status_updated, new_status = await _apply_ping_status(
+            record, reachable, id, current_user, request, auto_update and reachable
+        )
+        return PingResult(
+            ip_address=ip,
+            reachable=reachable,
+            method="zabbix",
+            latency_ms=None,
+            status_updated=status_updated,
+            new_status=new_status,
+            scan_source=scan_source,
+            device_name=device_name,
+        )
 
     loop = asyncio.get_running_loop()
 
@@ -651,34 +871,9 @@ async def ping_ip_record(
             latency_ms = round((time.monotonic() - start) * 1000, 1)
             method = "tcp"
 
-    status_updated = False
-    new_status: Optional[str] = None
-
-    if auto_update:
-        target_status = "In Use" if reachable else "Free"
-        if record.status.value != target_status:
-            db = get_database()
-            ip_repo = IPRecordRepository(db["ip_records"])
-            audit_repo = AuditLogRepository(db["audit_logs"])
-            await ip_repo.update(id, {"status": target_status, "updated_by": current_user.sub})
-            detail_msg = (
-                "Auto-updated to In Use: IP responded to availability check"
-                if reachable
-                else "Auto-updated to Free: IP did not respond to availability check"
-            )
-            await audit_repo.log(
-                action=AuditAction.UPDATE,
-                resource_type=ResourceType.IP_RECORD,
-                username=current_user.sub,
-                user_role=current_user.role.value,
-                client_ip=_get_client_ip(request),
-                resource_id=id,
-                before={"status": record.status.value},
-                after={"status": target_status},
-                detail=detail_msg,
-            )
-            status_updated = True
-            new_status = target_status
+    status_updated, new_status = await _apply_ping_status(
+        record, reachable, id, current_user, request, auto_update
+    )
 
     return PingResult(
         ip_address=ip,
@@ -687,4 +882,119 @@ async def ping_ip_record(
         latency_ms=latency_ms,
         status_updated=status_updated,
         new_status=new_status,
+        scan_source=scan_source,
+    )
+
+
+@router.post("/check-ip", response_model=PingResult)
+async def check_ip_availability(
+    ip_address: str = Body(..., embed=True),
+    scan_source: Optional[str] = Body(default=None, embed=True),
+    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+) -> PingResult:
+    """Same availability check as /{id}/ping, but for an address that has no
+    IP record yet (e.g. an entry from the Unused IPs list) — nothing to
+    update, this is purely informational."""
+    try:
+        ipaddress.ip_address(ip_address)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid IP address '{ip_address}'",
+        ) from exc
+
+    if scan_source is not None and scan_source not in _VALID_SCAN_SOURCES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown scan_source '{scan_source}'",
+        )
+    if scan_source == "paloalto":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Scanning via {scan_source} is not integrated yet",
+        )
+
+    if scan_source in _HOST_NIC_SOURCES:
+        try:
+            reachable, latency_ms = await _helper_ping(scan_source, ip_address)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Scan helper unreachable: {exc}",
+            ) from exc
+        return PingResult(
+            ip_address=ip_address,
+            reachable=reachable,
+            method="icmp",
+            latency_ms=latency_ms,
+            scan_source=scan_source,
+        )
+
+    if scan_source == "device42":
+        try:
+            in_use, device_name = await _device42_lookup(ip_address)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Device42 lookup failed: {exc}",
+            ) from exc
+        return PingResult(
+            ip_address=ip_address,
+            reachable=in_use,
+            method="device42",
+            latency_ms=None,
+            scan_source=scan_source,
+            device_name=device_name,
+        )
+
+    if scan_source == "zabbix":
+        try:
+            reachable, device_name = await _zabbix_lookup(ip_address)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Zabbix lookup failed: {exc}",
+            ) from exc
+        return PingResult(
+            ip_address=ip_address,
+            reachable=reachable,
+            method="zabbix",
+            latency_ms=None,
+            scan_source=scan_source,
+            device_name=device_name,
+        )
+
+    loop = asyncio.get_running_loop()
+    reachable = False
+    latency_ms = None
+    method = "tcp"
+
+    icmp_latency = await loop.run_in_executor(None, _icmp_ping, ip_address)
+    if icmp_latency is not None:
+        reachable = True
+        latency_ms = icmp_latency
+        method = "icmp"
+
+    if not reachable:
+        raw_latency = await loop.run_in_executor(None, _icmp_ping_raw, ip_address)
+        if raw_latency is not None:
+            reachable = True
+            latency_ms = raw_latency
+            method = "icmp-raw"
+
+    if not reachable:
+        start = time.monotonic()
+        tasks = [_tcp_probe(ip_address, p, _PROBE_TIMEOUT) for p in _PROBE_PORTS]
+        results = await asyncio.gather(*tasks)
+        if any(results):
+            reachable = True
+            latency_ms = round((time.monotonic() - start) * 1000, 1)
+            method = "tcp"
+
+    return PingResult(
+        ip_address=ip_address,
+        reachable=reachable,
+        method=method,
+        latency_ms=latency_ms,
+        scan_source=scan_source,
     )

@@ -107,4 +107,14 @@ class SubnetTreeNode(SubnetDetailResponse):
     utilization_pct: float = 0.0
 
 
+class UnusedIPsResponse(BaseModel):
+    subnet_id: str
+    cidr: str
+    items: list[str]
+    total: int
+    page: int
+    page_size: int
+    capped: bool = False
+
+
 SubnetTreeNode.model_rebuild()

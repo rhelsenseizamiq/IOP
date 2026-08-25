@@ -1,6 +1,13 @@
-import apiClient from './client';
-import type { Subnet, SubnetDetail, SubnetCreate, SubnetUpdate, SubnetTreeNode } from '../types/subnet';
-import type { PaginatedResponse } from '../types/common';
+import apiClient from "./client";
+import type {
+  Subnet,
+  SubnetDetail,
+  SubnetCreate,
+  SubnetUpdate,
+  SubnetTreeNode,
+  UnusedIPsResponse,
+} from "../types/subnet";
+import type { PaginatedResponse } from "../types/common";
 
 export interface SubnetListParams {
   page?: number;
@@ -16,16 +23,22 @@ export interface SubnetTreeParams {
 
 export const subnetsApi = {
   list: (params: SubnetListParams = {}) =>
-    apiClient.get<PaginatedResponse<SubnetDetail>>('/subnets', { params }),
+    apiClient.get<PaginatedResponse<SubnetDetail>>("/subnets", { params }),
 
   tree: (params: SubnetTreeParams = {}) =>
-    apiClient.get<SubnetTreeNode[]>('/subnets/tree', { params }),
+    apiClient.get<SubnetTreeNode[]>("/subnets/tree", { params }),
 
   get: (id: string) => apiClient.get<SubnetDetail>(`/subnets/${id}`),
 
-  create: (data: SubnetCreate) => apiClient.post<Subnet>('/subnets', data),
+  create: (data: SubnetCreate) => apiClient.post<Subnet>("/subnets", data),
 
-  update: (id: string, data: SubnetUpdate) => apiClient.put<Subnet>(`/subnets/${id}`, data),
+  update: (id: string, data: SubnetUpdate) =>
+    apiClient.put<Subnet>(`/subnets/${id}`, data),
 
   delete: (id: string) => apiClient.delete<void>(`/subnets/${id}`),
+
+  unusedIps: (id: string, page = 1, pageSize = 50, search?: string) =>
+    apiClient.get<UnusedIPsResponse>(`/subnets/${id}/unused-ips`, {
+      params: { page, page_size: pageSize, search: search || undefined },
+    }),
 };

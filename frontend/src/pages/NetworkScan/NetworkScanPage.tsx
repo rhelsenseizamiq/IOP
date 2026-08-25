@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import {
   Alert,
   Badge,
@@ -19,7 +25,7 @@ import {
   Tooltip,
   Typography,
   message,
-} from 'antd';
+} from "antd";
 import {
   AimOutlined,
   BugOutlined,
@@ -31,18 +37,30 @@ import {
   WifiOutlined,
   PlusCircleOutlined,
   ApartmentOutlined,
-} from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
-import { scanApi, SCAN_MODES } from '../../api/scan';
-import type { DiscoverScanResult, ScanMode, ScanModeInfo, DiscoveredHost } from '../../api/scan';
-import { ipRecordsApi } from '../../api/ipRecords';
-import { subnetsApi } from '../../api/subnets';
-import CreateSubnetModal from './CreateSubnetModal';
-import type { SubnetDetail } from '../../types/subnet';
-import type { OSType, Environment } from '../../types/ipRecord';
-import { ENV_OPTIONS, ENV_COLOR } from '../../constants/environments';
+} from "@ant-design/icons";
+import type { ColumnsType } from "antd/es/table";
+import { scanApi, SCAN_MODES } from "../../api/scan";
+import type {
+  DiscoverScanResult,
+  ScanMode,
+  ScanModeInfo,
+  DiscoveredHost,
+} from "../../api/scan";
+import { ipRecordsApi } from "../../api/ipRecords";
+import { subnetsApi } from "../../api/subnets";
+import CreateSubnetModal from "./CreateSubnetModal";
+import type { SubnetDetail } from "../../types/subnet";
+import type { OSType, Environment } from "../../types/ipRecord";
+import { ENV_OPTIONS, ENV_COLOR } from "../../constants/environments";
 
-const OS_OPTIONS: OSType[] = ['AIX', 'Linux', 'Windows', 'macOS', 'OpenShift', 'Unknown'];
+const OS_OPTIONS: OSType[] = [
+  "AIX",
+  "Linux",
+  "Windows",
+  "macOS",
+  "OpenShift",
+  "Unknown",
+];
 
 const MODE_ICON: Record<ScanMode, React.ReactNode> = {
   quick: <ThunderboltOutlined />,
@@ -66,21 +84,26 @@ interface SubnetGroup {
 }
 
 function ipToInt(ip: string): number {
-  return ip.split('.').reduce((acc, octet) => ((acc << 8) + parseInt(octet, 10)) >>> 0, 0);
+  return ip
+    .split(".")
+    .reduce((acc, octet) => ((acc << 8) + parseInt(octet, 10)) >>> 0, 0);
 }
 
 function isIPInCIDR(ip: string, cidr: string): boolean {
-  const [network, prefixStr] = cidr.split('/');
+  const [network, prefixStr] = cidr.split("/");
   const prefix = parseInt(prefixStr, 10);
   const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
   return (ipToInt(ip) & mask) === (ipToInt(network) & mask);
 }
 
-function findSubnetForIP(ip: string, subnets: SubnetDetail[]): SubnetDetail | null {
+function findSubnetForIP(
+  ip: string,
+  subnets: SubnetDetail[],
+): SubnetDetail | null {
   let best: SubnetDetail | null = null;
   let bestPrefix = -1;
   for (const s of subnets) {
-    const prefix = parseInt(s.cidr.split('/')[1], 10);
+    const prefix = parseInt(s.cidr.split("/")[1], 10);
     if (prefix > bestPrefix && isIPInCIDR(ip, s.cidr)) {
       best = s;
       bestPrefix = prefix;
@@ -89,12 +112,13 @@ function findSubnetForIP(ip: string, subnets: SubnetDetail[]): SubnetDetail | nu
   return best;
 }
 
-
 function estimateHosts(cidr: string): number {
   try {
-    const prefix = parseInt(cidr.split('/')[1], 10);
+    const prefix = parseInt(cidr.split("/")[1], 10);
     return Math.max(0, 2 ** (32 - prefix) - 2);
-  } catch { return 100; }
+  } catch {
+    return 100;
+  }
 }
 
 function estimateSecs(hosts: number, mode: string): number {
@@ -103,7 +127,7 @@ function estimateSecs(hosts: number, mode: string): number {
     standard: { c: 50, t: 0.55 },
     deep: { c: 25, t: 1.1 },
   };
-  const p = profiles[mode] ?? profiles['standard'];
+  const p = profiles[mode] ?? profiles["standard"];
   return Math.max(2, Math.ceil(hosts / p.c) * p.t * 1.25);
 }
 
@@ -115,7 +139,7 @@ function startProgressTimer(
   const intervalMs = Math.max(100, estimatedMs / steps);
   let current = 0;
   return setInterval(() => {
-    current = Math.min(93, current + (88 / steps) + Math.random() * 2);
+    current = Math.min(93, current + 88 / steps + Math.random() * 2);
     setter(Math.round(current));
   }, intervalMs);
 }
@@ -131,23 +155,29 @@ const ModeCard: React.FC<{
     size="small"
     onClick={onClick}
     style={{
-      cursor: 'pointer',
-      border: selected ? `2px solid ${info.color}` : '1px solid #d9d9d9',
-      background: selected ? `${info.color}08` : '#fff',
-      transition: 'all 0.2s',
-      userSelect: 'none',
+      cursor: "pointer",
+      border: selected
+        ? `2px solid ${info.color}`
+        : "1px solid rgba(255, 255, 255, 0.15)",
+      background: selected ? `${info.color}1a` : "rgba(255, 255, 255, 0.04)",
+      transition: "all 0.2s",
+      userSelect: "none",
     }}
-    styles={{ body: { padding: '10px 14px' } }}
+    styles={{ body: { padding: "10px 14px" } }}
   >
-    <Space direction="vertical" size={2} style={{ width: '100%' }}>
+    <Space direction="vertical" size={2} style={{ width: "100%" }}>
       <Space>
-        <span style={{ color: info.color, fontSize: 16 }}>{MODE_ICON[info.key]}</span>
+        <span style={{ color: info.color, fontSize: 16 }}>
+          {MODE_ICON[info.key]}
+        </span>
         <Typography.Text strong style={{ color: info.color }}>
           {info.label}
         </Typography.Text>
         {selected && <Badge status="processing" color={info.color} />}
       </Space>
-      <Typography.Text style={{ fontSize: 13 }}>{info.description}</Typography.Text>
+      <Typography.Text style={{ fontSize: 13 }}>
+        {info.description}
+      </Typography.Text>
       <Typography.Text type="secondary" style={{ fontSize: 11 }}>
         {info.detail}
       </Typography.Text>
@@ -162,8 +192,8 @@ const ModeCard: React.FC<{
 
 const NetworkScanPage: React.FC = () => {
   const [subnets, setSubnets] = useState<SubnetDetail[]>([]);
-  const [cidr, setCidr] = useState('');
-  const [mode, setMode] = useState<ScanMode>('standard');
+  const [cidr, setCidr] = useState("");
+  const [mode, setMode] = useState<ScanMode>("standard");
   const [scanning, setScanning] = useState(false);
   const [rows, setRows] = useState<ScanRow[]>([]);
   const [scanInfo, setScanInfo] = useState<{
@@ -175,7 +205,7 @@ const NetworkScanPage: React.FC = () => {
   } | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [importEnv, setImportEnv] = useState<Environment | undefined>();
-  const [importOwner, setImportOwner] = useState('');
+  const [importOwner, setImportOwner] = useState("");
   const [importing, setImporting] = useState(false);
 
   const [scanProgress, setScanProgress] = useState(0);
@@ -184,10 +214,14 @@ const NetworkScanPage: React.FC = () => {
   const infraTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Subnet creation modal for unmatched hosts
-  const [createModal, setCreateModal] = useState<{ open: boolean; forIp: string; suggestedCidr: string }>({
+  const [createModal, setCreateModal] = useState<{
+    open: boolean;
+    forIp: string;
+    suggestedCidr: string;
+  }>({
     open: false,
-    forIp: '',
-    suggestedCidr: '',
+    forIp: "",
+    suggestedCidr: "",
   });
 
   const fetchSubnets = useCallback(async () => {
@@ -220,21 +254,24 @@ const NetworkScanPage: React.FC = () => {
       }
     }
     const result: SubnetGroup[] = [...map.values()].sort((a, b) =>
-      (a.subnet?.cidr ?? '').localeCompare(b.subnet?.cidr ?? '')
+      (a.subnet?.cidr ?? "").localeCompare(b.subnet?.cidr ?? ""),
     );
     if (unmatched.length > 0) result.push({ subnet: null, rows: unmatched });
     return result;
   }, [rows, subnets]);
 
   const importableCount = useMemo(
-    () => selectedKeys.filter((k) => rows.find((r) => r.key === k && r.subnet_id !== null)).length,
-    [selectedKeys, rows]
+    () =>
+      selectedKeys.filter((k) =>
+        rows.find((r) => r.key === k && r.subnet_id !== null),
+      ).length,
+    [selectedKeys, rows],
   );
 
   const handleScan = useCallback(async () => {
     const trimmed = cidr.trim();
     if (!trimmed) {
-      message.warning('Please enter a CIDR to scan');
+      message.warning("Please enter a CIDR to scan");
       return;
     }
     setScanning(true);
@@ -244,18 +281,27 @@ const NetworkScanPage: React.FC = () => {
     setScanProgress(0);
     const _hosts = estimateHosts(trimmed);
     if (scanTimerRef.current) clearInterval(scanTimerRef.current);
-    scanTimerRef.current = startProgressTimer(estimateSecs(_hosts, mode) * 1000, setScanProgress);
+    scanTimerRef.current = startProgressTimer(
+      estimateSecs(_hosts, mode) * 1000,
+      setScanProgress,
+    );
     try {
       const res = await scanApi.scan({ cidr: trimmed, mode });
-      const { discovered, cidr: scanned, total_scanned, duration_seconds, mode: usedMode } = res.data;
+      const {
+        discovered,
+        cidr: scanned,
+        total_scanned,
+        duration_seconds,
+        mode: usedMode,
+      } = res.data;
 
       const mapped: ScanRow[] = discovered.map((host: DiscoveredHost) => {
         const matched = findSubnetForIP(host.ip_address, subnets);
         return {
           key: host.ip_address,
           ip_address: host.ip_address,
-          hostname: host.hostname ?? '',
-          os_type: (host.os_hint as OSType) ?? 'Unknown',
+          hostname: host.hostname ?? "",
+          os_type: (host.os_hint as OSType) ?? "Unknown",
           open_ports: host.open_ports,
           subnet_id: matched?.id ?? null,
           subnet_cidr: matched?.cidr ?? null,
@@ -263,31 +309,54 @@ const NetworkScanPage: React.FC = () => {
       });
 
       setRows(mapped);
-      setSelectedKeys(mapped.filter((r) => r.subnet_id !== null).map((r) => r.key));
-      setScanInfo({ cidr: scanned, mode: usedMode, total: total_scanned, found: discovered.length, duration: duration_seconds });
+      setSelectedKeys(
+        mapped.filter((r) => r.subnet_id !== null).map((r) => r.key),
+      );
+      setScanInfo({
+        cidr: scanned,
+        mode: usedMode,
+        total: total_scanned,
+        found: discovered.length,
+        duration: duration_seconds,
+      });
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      message.error(axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Scan failed');
+      const axiosErr = err as {
+        response?: { data?: { detail?: string } };
+        message?: string;
+      };
+      message.error(
+        axiosErr.response?.data?.detail ?? axiosErr.message ?? "Scan failed",
+      );
     } finally {
-      if (scanTimerRef.current) { clearInterval(scanTimerRef.current); scanTimerRef.current = null; }
+      if (scanTimerRef.current) {
+        clearInterval(scanTimerRef.current);
+        scanTimerRef.current = null;
+      }
       setScanProgress(100);
       setTimeout(() => setScanProgress(0), 1000);
       setScanning(false);
     }
   }, [cidr, mode, subnets]);
 
-  const updateRow = useCallback((ip: string, field: 'hostname' | 'os_type', value: string) => {
-    setRows((prev) => prev.map((r) => (r.ip_address === ip ? { ...r, [field]: value } : r)));
-  }, []);
+  const updateRow = useCallback(
+    (ip: string, field: "hostname" | "os_type", value: string) => {
+      setRows((prev) =>
+        prev.map((r) => (r.ip_address === ip ? { ...r, [field]: value } : r)),
+      );
+    },
+    [],
+  );
 
   const handleImport = useCallback(async () => {
     if (!importEnv) {
-      message.warning('Please select an Environment before importing');
+      message.warning("Please select an Environment before importing");
       return;
     }
-    const toImport = rows.filter((r) => selectedKeys.includes(r.key) && r.subnet_id !== null);
+    const toImport = rows.filter(
+      (r) => selectedKeys.includes(r.key) && r.subnet_id !== null,
+    );
     if (!toImport.length) {
-      message.warning('No matched hosts selected');
+      message.warning("No matched hosts selected");
       return;
     }
     setImporting(true);
@@ -300,7 +369,7 @@ const NetworkScanPage: React.FC = () => {
           hostname: row.hostname || undefined,
           os_type: row.os_type,
           subnet_id: row.subnet_id!,
-          status: 'Reserved',
+          status: "Reserved",
           environment: importEnv,
           owner: importOwner || undefined,
         });
@@ -316,19 +385,28 @@ const NetworkScanPage: React.FC = () => {
       setScanInfo(null);
       setSelectedKeys([]);
     } else {
-      message.warning(`Imported ${ok} host(s); ${errors} skipped (already exist or conflict)`);
+      message.warning(
+        `Imported ${ok} host(s); ${errors} skipped (already exist or conflict)`,
+      );
     }
   }, [rows, selectedKeys, importEnv, importOwner]);
 
-  const assignSubnetToRow = useCallback((ip: string, subnetId: string, subnetCidr: string) => {
-    setRows((prev) =>
-      prev.map((r) => (r.ip_address === ip ? { ...r, subnet_id: subnetId, subnet_cidr: subnetCidr } : r))
-    );
-    setSelectedKeys((prev) => [...new Set([...prev, ip])]);
-  }, []);
+  const assignSubnetToRow = useCallback(
+    (ip: string, subnetId: string, subnetCidr: string) => {
+      setRows((prev) =>
+        prev.map((r) =>
+          r.ip_address === ip
+            ? { ...r, subnet_id: subnetId, subnet_cidr: subnetCidr }
+            : r,
+        ),
+      );
+      setSelectedKeys((prev) => [...new Set([...prev, ip])]);
+    },
+    [],
+  );
 
   const suggestCidr = (ip: string): string => {
-    const parts = ip.split('.');
+    const parts = ip.split(".");
     return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
   };
 
@@ -336,9 +414,9 @@ const NetworkScanPage: React.FC = () => {
     (subnet: SubnetDetail) => {
       setSubnets((prev) => [...prev, subnet]);
       assignSubnetToRow(createModal.forIp, subnet.id, subnet.cidr);
-      setCreateModal({ open: false, forIp: '', suggestedCidr: '' });
+      setCreateModal({ open: false, forIp: "", suggestedCidr: "" });
     },
-    [createModal.forIp, assignSubnetToRow]
+    [createModal.forIp, assignSubnetToRow],
   );
 
   const toggleGroupSelection = (groupRows: ScanRow[], allSelected: boolean) => {
@@ -353,40 +431,44 @@ const NetworkScanPage: React.FC = () => {
   const buildColumns = (isUnmatched: boolean): ColumnsType<ScanRow> => {
     const cols: ColumnsType<ScanRow> = [
       {
-        title: 'IP Address',
-        dataIndex: 'ip_address',
-        key: 'ip_address',
+        title: "IP Address",
+        dataIndex: "ip_address",
+        key: "ip_address",
         width: 140,
         render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
       },
       {
-        title: 'Hostname',
-        dataIndex: 'hostname',
-        key: 'hostname',
+        title: "Hostname",
+        dataIndex: "hostname",
+        key: "hostname",
         render: (v: string, record: ScanRow) => (
           <Input
             size="small"
             value={v}
             placeholder="—"
-            onChange={(e) => updateRow(record.ip_address, 'hostname', e.target.value)}
+            onChange={(e) =>
+              updateRow(record.ip_address, "hostname", e.target.value)
+            }
             style={{ minWidth: 170 }}
           />
         ),
       },
       {
-        title: 'OS Type',
-        dataIndex: 'os_type',
-        key: 'os_type',
+        title: "OS Type",
+        dataIndex: "os_type",
+        key: "os_type",
         width: 145,
         render: (v: OSType, record: ScanRow) => (
           <Select<OSType>
             size="small"
             value={v}
             style={{ width: 128 }}
-            onChange={(val) => updateRow(record.ip_address, 'os_type', val)}
+            onChange={(val) => updateRow(record.ip_address, "os_type", val)}
           >
             {OS_OPTIONS.map((o) => (
-              <Select.Option key={o} value={o}>{o}</Select.Option>
+              <Select.Option key={o} value={o}>
+                {o}
+              </Select.Option>
             ))}
           </Select>
         ),
@@ -394,24 +476,29 @@ const NetworkScanPage: React.FC = () => {
     ];
 
     // Show open ports only for deep scan results
-    if (mode === 'deep') {
+    if (mode === "deep") {
       cols.push({
-        title: 'Open Ports',
-        dataIndex: 'open_ports',
-        key: 'open_ports',
+        title: "Open Ports",
+        dataIndex: "open_ports",
+        key: "open_ports",
         render: (ports: number[]) =>
           ports.length === 0 ? (
             <Typography.Text type="secondary">—</Typography.Text>
           ) : (
-            <Tooltip title={ports.join(', ')}>
+            <Tooltip title={ports.join(", ")}>
               <Space size={2} wrap>
                 {ports.slice(0, 6).map((p) => (
-                  <Tag key={p} style={{ fontSize: 11, padding: '0 4px', marginBottom: 2 }}>
+                  <Tag
+                    key={p}
+                    style={{ fontSize: 11, padding: "0 4px", marginBottom: 2 }}
+                  >
                     {p}
                   </Tag>
                 ))}
                 {ports.length > 6 && (
-                  <Tag style={{ fontSize: 11, padding: '0 4px' }}>+{ports.length - 6}</Tag>
+                  <Tag style={{ fontSize: 11, padding: "0 4px" }}>
+                    +{ports.length - 6}
+                  </Tag>
                 )}
               </Space>
             </Tooltip>
@@ -421,8 +508,8 @@ const NetworkScanPage: React.FC = () => {
 
     if (isUnmatched) {
       cols.push({
-        title: 'Assign Subnet',
-        key: 'assign_subnet',
+        title: "Assign Subnet",
+        key: "assign_subnet",
         width: 260,
         render: (_: unknown, record: ScanRow) => (
           <Select
@@ -430,7 +517,7 @@ const NetworkScanPage: React.FC = () => {
             placeholder="Select or create subnet…"
             style={{ width: 240 }}
             onChange={(val: string) => {
-              if (val === '__create__') {
+              if (val === "__create__") {
                 setCreateModal({
                   open: true,
                   forIp: record.ip_address,
@@ -446,10 +533,10 @@ const NetworkScanPage: React.FC = () => {
                 {menu}
                 <div
                   style={{
-                    padding: '6px 12px',
-                    cursor: 'pointer',
-                    color: '#1677ff',
-                    borderTop: '1px solid #f0f0f0',
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    color: "#1677ff",
+                    borderTop: "1px solid rgba(255, 255, 255, 0.12)",
                     fontWeight: 500,
                   }}
                   onMouseDown={(e) => e.preventDefault()}
@@ -476,8 +563,8 @@ const NetworkScanPage: React.FC = () => {
       });
     } else {
       cols.push({
-        title: 'Status',
-        key: 'status',
+        title: "Status",
+        key: "status",
         width: 100,
         render: () => <Tag color="orange">Reserved</Tag>,
       });
@@ -489,12 +576,14 @@ const NetworkScanPage: React.FC = () => {
   const selectedModeInfo = SCAN_MODES.find((m) => m.key === mode)!;
 
   // ── Infrastructure Scan state ────────────────────────────────────────────────
-  const [infraCidrs, setInfraCidrs] = useState('');
-  const [infraMode, setInfraMode] = useState<ScanMode>('standard');
+  const [infraCidrs, setInfraCidrs] = useState("");
+  const [infraMode, setInfraMode] = useState<ScanMode>("standard");
   const [infraSaveInactive, setInfraSaveInactive] = useState(false);
   const [infraOverwrite, setInfraOverwrite] = useState(false);
   const [infraScanning, setInfraScanning] = useState(false);
-  const [infraResult, setInfraResult] = useState<DiscoverScanResult | null>(null);
+  const [infraResult, setInfraResult] = useState<DiscoverScanResult | null>(
+    null,
+  );
 
   const handleInfraScan = useCallback(async (): Promise<void> => {
     const cidrs = infraCidrs
@@ -502,7 +591,7 @@ const NetworkScanPage: React.FC = () => {
       .map((c) => c.trim())
       .filter(Boolean);
     if (cidrs.length === 0) {
-      void message.warning('Enter at least one CIDR');
+      void message.warning("Enter at least one CIDR");
       return;
     }
     setInfraScanning(true);
@@ -510,7 +599,10 @@ const NetworkScanPage: React.FC = () => {
     setInfraProgress(0);
     const _infraHosts = cidrs.reduce((acc, c) => acc + estimateHosts(c), 0);
     if (infraTimerRef.current) clearInterval(infraTimerRef.current);
-    infraTimerRef.current = startProgressTimer(estimateSecs(_infraHosts, infraMode) * 1000, setInfraProgress);
+    infraTimerRef.current = startProgressTimer(
+      estimateSecs(_infraHosts, infraMode) * 1000,
+      setInfraProgress,
+    );
     try {
       const res = await scanApi.discover({
         cidrs,
@@ -520,13 +612,21 @@ const NetworkScanPage: React.FC = () => {
       });
       setInfraResult(res.data);
       void message.success(
-        `Scan complete: ${res.data.created} new, ${res.data.updated} updated, ${res.data.skipped} skipped`
+        `Scan complete: ${res.data.created} new, ${res.data.updated} updated, ${res.data.skipped} skipped`,
       );
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
-      void message.error(axiosErr.response?.data?.detail ?? 'Infrastructure scan failed');
+      const axiosErr = err as {
+        response?: { data?: { detail?: string } };
+        message?: string;
+      };
+      void message.error(
+        axiosErr.response?.data?.detail ?? "Infrastructure scan failed",
+      );
     } finally {
-      if (infraTimerRef.current) { clearInterval(infraTimerRef.current); infraTimerRef.current = null; }
+      if (infraTimerRef.current) {
+        clearInterval(infraTimerRef.current);
+        infraTimerRef.current = null;
+      }
       setInfraProgress(100);
       setTimeout(() => setInfraProgress(0), 1000);
       setInfraScanning(false);
@@ -537,7 +637,14 @@ const NetworkScanPage: React.FC = () => {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 16,
+        }}
+      >
         <Typography.Title level={4} style={{ margin: 0 }}>
           <WifiOutlined style={{ marginRight: 8 }} />
           Network Scanner
@@ -548,11 +655,19 @@ const NetworkScanPage: React.FC = () => {
         {/* ── Host Discovery tab ─────────────────────────────────────────── */}
         <Tabs.TabPane
           key="discovery"
-          tab={<Space><WifiOutlined />Host Discovery</Space>}
+          tab={
+            <Space>
+              <WifiOutlined />
+              Host Discovery
+            </Space>
+          }
         >
           {/* Scan mode selector */}
           <div style={{ marginBottom: 16 }}>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+            <Typography.Text
+              strong
+              style={{ display: "block", marginBottom: 8 }}
+            >
               Scan Mode:
             </Typography.Text>
             <Row gutter={12}>
@@ -595,26 +710,29 @@ const NetworkScanPage: React.FC = () => {
                   loading={scanning}
                   disabled={!cidr.trim()}
                   onClick={() => void handleScan()}
-                  style={{ background: selectedModeInfo.color, borderColor: selectedModeInfo.color }}
+                  style={{
+                    background: selectedModeInfo.color,
+                    borderColor: selectedModeInfo.color,
+                  }}
                 >
-                  {scanning ? 'Scanning…' : `${selectedModeInfo.label} Scan`}
+                  {scanning ? "Scanning…" : `${selectedModeInfo.label} Scan`}
                 </Button>
               </Col>
             </Row>
           </Card>
 
           {scanning && (
-            <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <div style={{ textAlign: "center", padding: "32px 0" }}>
               <Progress
                 type="circle"
                 percent={scanProgress}
-                status={scanProgress < 100 ? 'active' : 'success'}
+                status={scanProgress < 100 ? "active" : "success"}
                 strokeColor={selectedModeInfo.color}
                 size={100}
               />
               <div style={{ marginTop: 16 }}>
                 <Typography.Text type="secondary">
-                  Running <strong>{selectedModeInfo.label}</strong> scan on{' '}
+                  Running <strong>{selectedModeInfo.label}</strong> scan on{" "}
                   <Typography.Text code>{cidr.trim()}</Typography.Text>…
                 </Typography.Text>
               </div>
@@ -624,16 +742,21 @@ const NetworkScanPage: React.FC = () => {
           {!scanning && scanInfo && (
             <>
               <Alert
-                type={scanInfo.found > 0 ? 'success' : 'info'}
+                type={scanInfo.found > 0 ? "success" : "info"}
                 message={
                   <span>
-                    <Tag color={selectedModeInfo.color}>{scanInfo.mode.toUpperCase()} SCAN</Tag>{' '}
-                    <Typography.Text code>{scanInfo.cidr}</Typography.Text> — found{' '}
-                    <strong>{scanInfo.found}</strong> live host{scanInfo.found !== 1 ? 's' : ''} out of{' '}
-                    <strong>{scanInfo.total}</strong> in <strong>{scanInfo.duration}s</strong>.
+                    <Tag color={selectedModeInfo.color}>
+                      {scanInfo.mode.toUpperCase()} SCAN
+                    </Tag>{" "}
+                    <Typography.Text code>{scanInfo.cidr}</Typography.Text> —
+                    found <strong>{scanInfo.found}</strong> live host
+                    {scanInfo.found !== 1 ? "s" : ""} out of{" "}
+                    <strong>{scanInfo.total}</strong> in{" "}
+                    <strong>{scanInfo.duration}s</strong>.
                     {rows.filter((r) => r.subnet_id === null).length > 0 && (
-                      <span style={{ color: '#faad14', marginLeft: 8 }}>
-                        {rows.filter((r) => r.subnet_id === null).length} host(s) have no matching subnet.
+                      <span style={{ color: "#faad14", marginLeft: 8 }}>
+                        {rows.filter((r) => r.subnet_id === null).length}{" "}
+                        host(s) have no matching subnet.
                       </span>
                     )}
                   </span>
@@ -694,24 +817,42 @@ const NetworkScanPage: React.FC = () => {
                   {groups.map((group, idx) => {
                     const isUnmatched = group.subnet === null;
                     const groupKeys = group.rows.map((r) => r.key);
-                    const allSelected = groupKeys.length > 0 && groupKeys.every((k) => selectedKeys.includes(k));
-                    const someSelected = groupKeys.some((k) => selectedKeys.includes(k));
+                    const allSelected =
+                      groupKeys.length > 0 &&
+                      groupKeys.every((k) => selectedKeys.includes(k));
+                    const someSelected = groupKeys.some((k) =>
+                      selectedKeys.includes(k),
+                    );
                     return (
-                      <div key={group.subnet?.id ?? '__unmatched__'} style={{ marginBottom: 24 }}>
-                        <Divider orientation="left" style={{ marginTop: idx === 0 ? 0 : undefined }}>
+                      <div
+                        key={group.subnet?.id ?? "__unmatched__"}
+                        style={{ marginBottom: 24 }}
+                      >
+                        <Divider
+                          orientation="left"
+                          style={{ marginTop: idx === 0 ? 0 : undefined }}
+                        >
                           {isUnmatched ? (
                             <Space>
-                              <WarningOutlined style={{ color: '#faad14' }} />
+                              <WarningOutlined style={{ color: "#faad14" }} />
                               <Typography.Text type="warning">
-                                No matching subnet — {group.rows.length} host{group.rows.length !== 1 ? 's' : ''}
+                                No matching subnet — {group.rows.length} host
+                                {group.rows.length !== 1 ? "s" : ""}
                                 &nbsp;(create subnets first to import)
                               </Typography.Text>
                             </Space>
                           ) : (
                             <Space>
-                              <Typography.Text code>{group.subnet!.cidr}</Typography.Text>
-                              <Typography.Text strong>{group.subnet!.name}</Typography.Text>
-                              <Tag color="blue">{group.rows.length} host{group.rows.length !== 1 ? 's' : ''}</Tag>
+                              <Typography.Text code>
+                                {group.subnet!.cidr}
+                              </Typography.Text>
+                              <Typography.Text strong>
+                                {group.subnet!.name}
+                              </Typography.Text>
+                              <Tag color="blue">
+                                {group.rows.length} host
+                                {group.rows.length !== 1 ? "s" : ""}
+                              </Tag>
                             </Space>
                           )}
                         </Divider>
@@ -720,7 +861,9 @@ const NetworkScanPage: React.FC = () => {
                             <Checkbox
                               indeterminate={someSelected && !allSelected}
                               checked={allSelected}
-                              onChange={() => toggleGroupSelection(group.rows, allSelected)}
+                              onChange={() =>
+                                toggleGroupSelection(group.rows, allSelected)
+                              }
                             >
                               Select all in this subnet
                             </Checkbox>
@@ -732,7 +875,7 @@ const NetworkScanPage: React.FC = () => {
                           rowKey="key"
                           size="small"
                           pagination={false}
-                          scroll={{ x: mode === 'deep' ? 900 : 700 }}
+                          scroll={{ x: mode === "deep" ? 900 : 700 }}
                           rowSelection={
                             isUnmatched
                               ? undefined
@@ -740,7 +883,9 @@ const NetworkScanPage: React.FC = () => {
                                   selectedRowKeys: selectedKeys,
                                   onChange: (keys) =>
                                     setSelectedKeys((prev) => {
-                                      const others = prev.filter((k) => !groupKeys.includes(k));
+                                      const others = prev.filter(
+                                        (k) => !groupKeys.includes(k),
+                                      );
                                       return [...others, ...(keys as string[])];
                                     }),
                                 }
@@ -758,14 +903,21 @@ const NetworkScanPage: React.FC = () => {
             open={createModal.open}
             suggestedCidr={createModal.suggestedCidr}
             onCreated={handleSubnetCreated}
-            onCancel={() => setCreateModal({ open: false, forIp: '', suggestedCidr: '' })}
+            onCancel={() =>
+              setCreateModal({ open: false, forIp: "", suggestedCidr: "" })
+            }
           />
         </Tabs.TabPane>
 
         {/* ── Infrastructure Scan tab ────────────────────────────────────── */}
         <Tabs.TabPane
           key="infrastructure"
-          tab={<Space><DatabaseOutlined />Infrastructure Scan</Space>}
+          tab={
+            <Space>
+              <DatabaseOutlined />
+              Infrastructure Scan
+            </Space>
+          }
         >
           <Alert
             type="info"
@@ -792,19 +944,26 @@ const NetworkScanPage: React.FC = () => {
           <Card size="small" style={{ marginBottom: 16 }}>
             <Row gutter={[16, 16]}>
               <Col xs={24} md={14}>
-                <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
+                <Typography.Text
+                  strong
+                  style={{ display: "block", marginBottom: 4 }}
+                >
                   CIDRs to scan (one per line or comma-separated):
                 </Typography.Text>
                 <Input.TextArea
                   rows={5}
                   value={infraCidrs}
                   onChange={(e) => setInfraCidrs(e.target.value)}
-                  placeholder={'10.0.0.0/24\n192.168.1.0/24\n172.16.0.0/24'}
-                  style={{ fontFamily: 'monospace', fontSize: 13 }}
+                  placeholder={"10.0.0.0/24\n192.168.1.0/24\n172.16.0.0/24"}
+                  style={{ fontFamily: "monospace", fontSize: 13 }}
                 />
               </Col>
               <Col xs={24} md={10}>
-                <Space direction="vertical" size={16} style={{ width: '100%', paddingTop: 24 }}>
+                <Space
+                  direction="vertical"
+                  size={16}
+                  style={{ width: "100%", paddingTop: 24 }}
+                >
                   <Space align="start">
                     <Switch
                       checked={infraSaveInactive}
@@ -826,7 +985,8 @@ const NetworkScanPage: React.FC = () => {
                     </Typography.Text>
                   </Space>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    IPs with no matching subnet are skipped. Add subnets first in the Subnets page.
+                    IPs with no matching subnet are skipped. Add subnets first
+                    in the Subnets page.
                   </Typography.Text>
                 </Space>
               </Col>
@@ -839,13 +999,19 @@ const NetworkScanPage: React.FC = () => {
             loading={infraScanning}
             disabled={!infraCidrs.trim()}
             onClick={() => void handleInfraScan()}
-            style={{ background: infraModeInfo.color, borderColor: infraModeInfo.color, marginBottom: 16 }}
+            style={{
+              background: infraModeInfo.color,
+              borderColor: infraModeInfo.color,
+              marginBottom: 16,
+            }}
           >
-            {infraScanning ? 'Scanning infrastructure…' : `Run ${infraModeInfo.label} Infrastructure Scan`}
+            {infraScanning
+              ? "Scanning infrastructure…"
+              : `Run ${infraModeInfo.label} Infrastructure Scan`}
           </Button>
 
           {infraScanning && (
-            <div style={{ padding: '8px 0 24px' }}>
+            <div style={{ padding: "8px 0 24px" }}>
               <Progress
                 percent={infraProgress}
                 status="active"
@@ -853,7 +1019,8 @@ const NetworkScanPage: React.FC = () => {
                 style={{ marginBottom: 8 }}
               />
               <Typography.Text type="secondary">
-                Scanning and saving to database… <strong>{infraProgress}%</strong>
+                Scanning and saving to database…{" "}
+                <strong>{infraProgress}%</strong>
               </Typography.Text>
             </div>
           )}
@@ -861,28 +1028,40 @@ const NetworkScanPage: React.FC = () => {
           {!infraScanning && infraResult && (
             <>
               <Alert
-                type={infraResult.errors.length > 0 ? 'warning' : 'success'}
+                type={infraResult.errors.length > 0 ? "warning" : "success"}
                 showIcon
                 message={
                   <Space wrap>
-                    <span>Done in <strong>{infraResult.duration_seconds}s</strong></span>
+                    <span>
+                      Done in <strong>{infraResult.duration_seconds}s</strong>
+                    </span>
                     <Tag color="blue">Scanned: {infraResult.total_scanned}</Tag>
-                    <Tag color="green">Active: {infraResult.total_discovered}</Tag>
+                    <Tag color="green">
+                      Active: {infraResult.total_discovered}
+                    </Tag>
                     <Tag color="cyan">Created: {infraResult.created}</Tag>
                     <Tag color="purple">Updated: {infraResult.updated}</Tag>
                     <Tag color="default">Skipped: {infraResult.skipped}</Tag>
-                  {infraResult.auto_created_subnets > 0 && (
-                    <Tag color="orange">Auto-subnets: {infraResult.auto_created_subnets}</Tag>
-                  )}
+                    {infraResult.auto_created_subnets > 0 && (
+                      <Tag color="orange">
+                        Auto-subnets: {infraResult.auto_created_subnets}
+                      </Tag>
+                    )}
                   </Space>
                 }
                 description={
                   infraResult.errors.length > 0 ? (
                     <details style={{ marginTop: 8 }}>
-                      <summary style={{ cursor: 'pointer' }}>{infraResult.errors.length} error(s)</summary>
-                      <ul style={{ margin: '8px 0 0 0', paddingLeft: 16 }}>
-                        {infraResult.errors.slice(0, 20).map((e, i) => <li key={i}>{e}</li>)}
-                        {infraResult.errors.length > 20 && <li>…and {infraResult.errors.length - 20} more</li>}
+                      <summary style={{ cursor: "pointer" }}>
+                        {infraResult.errors.length} error(s)
+                      </summary>
+                      <ul style={{ margin: "8px 0 0 0", paddingLeft: 16 }}>
+                        {infraResult.errors.slice(0, 20).map((e, i) => (
+                          <li key={i}>{e}</li>
+                        ))}
+                        {infraResult.errors.length > 20 && (
+                          <li>…and {infraResult.errors.length - 20} more</li>
+                        )}
                       </ul>
                     </details>
                   ) : undefined
@@ -894,7 +1073,7 @@ const NetworkScanPage: React.FC = () => {
                   style={{ marginTop: 16 }}
                   title={
                     <Space>
-                      <PlusCircleOutlined style={{ color: '#52c41a' }} />
+                      <PlusCircleOutlined style={{ color: "#52c41a" }} />
                       <Typography.Text strong>
                         New IPs Added ({infraResult.created_ips.length})
                       </Typography.Text>
@@ -902,34 +1081,51 @@ const NetworkScanPage: React.FC = () => {
                   }
                 >
                   <Table
-                    dataSource={infraResult.created_ips.map((ip) => ({ ip, key: ip }))}
+                    dataSource={infraResult.created_ips.map((ip) => ({
+                      ip,
+                      key: ip,
+                    }))}
                     columns={[
                       {
-                        title: 'IP Address',
-                        dataIndex: 'ip',
+                        title: "IP Address",
+                        dataIndex: "ip",
                         width: 160,
                         render: (v: string) => (
-                          <Typography.Text code copyable>{v}</Typography.Text>
+                          <Typography.Text code copyable>
+                            {v}
+                          </Typography.Text>
                         ),
                       },
                       {
-                        title: 'Subnet',
-                        key: 'subnet',
+                        title: "Subnet",
+                        key: "subnet",
                         render: (_: unknown, row: { ip: string }) => {
-                          const matched = subnets.find((sub) => isIPInCIDR(row.ip, sub.cidr));
+                          const matched = subnets.find((sub) =>
+                            isIPInCIDR(row.ip, sub.cidr),
+                          );
                           return matched ? (
                             <Space size={4}>
-                              <Typography.Text code>{matched.cidr}</Typography.Text>
-                              <Typography.Text type="secondary">{matched.name}</Typography.Text>
+                              <Typography.Text code>
+                                {matched.cidr}
+                              </Typography.Text>
+                              <Typography.Text type="secondary">
+                                {matched.name}
+                              </Typography.Text>
                             </Space>
                           ) : (
-                            <Typography.Text type="secondary">—</Typography.Text>
+                            <Typography.Text type="secondary">
+                              —
+                            </Typography.Text>
                           );
                         },
                       },
                     ]}
                     size="small"
-                    pagination={{ pageSize: 10, hideOnSinglePage: true, showTotal: (t) => `${t} IPs` }}
+                    pagination={{
+                      pageSize: 10,
+                      hideOnSinglePage: true,
+                      showTotal: (t) => `${t} IPs`,
+                    }}
                     scroll={{ y: 300 }}
                   />
                 </Card>
@@ -940,7 +1136,7 @@ const NetworkScanPage: React.FC = () => {
                   style={{ marginTop: 12 }}
                   title={
                     <Space>
-                      <DatabaseOutlined style={{ color: '#722ed1' }} />
+                      <DatabaseOutlined style={{ color: "#722ed1" }} />
                       <Typography.Text strong>
                         Updated IPs ({infraResult.updated_ips.length})
                       </Typography.Text>
@@ -948,34 +1144,51 @@ const NetworkScanPage: React.FC = () => {
                   }
                 >
                   <Table
-                    dataSource={infraResult.updated_ips.map((ip) => ({ ip, key: ip }))}
+                    dataSource={infraResult.updated_ips.map((ip) => ({
+                      ip,
+                      key: ip,
+                    }))}
                     columns={[
                       {
-                        title: 'IP Address',
-                        dataIndex: 'ip',
+                        title: "IP Address",
+                        dataIndex: "ip",
                         width: 160,
                         render: (v: string) => (
-                          <Typography.Text code copyable>{v}</Typography.Text>
+                          <Typography.Text code copyable>
+                            {v}
+                          </Typography.Text>
                         ),
                       },
                       {
-                        title: 'Subnet',
-                        key: 'subnet',
+                        title: "Subnet",
+                        key: "subnet",
                         render: (_: unknown, row: { ip: string }) => {
-                          const matched = subnets.find((sub) => isIPInCIDR(row.ip, sub.cidr));
+                          const matched = subnets.find((sub) =>
+                            isIPInCIDR(row.ip, sub.cidr),
+                          );
                           return matched ? (
                             <Space size={4}>
-                              <Typography.Text code>{matched.cidr}</Typography.Text>
-                              <Typography.Text type="secondary">{matched.name}</Typography.Text>
+                              <Typography.Text code>
+                                {matched.cidr}
+                              </Typography.Text>
+                              <Typography.Text type="secondary">
+                                {matched.name}
+                              </Typography.Text>
                             </Space>
                           ) : (
-                            <Typography.Text type="secondary">—</Typography.Text>
+                            <Typography.Text type="secondary">
+                              —
+                            </Typography.Text>
                           );
                         },
                       },
                     ]}
                     size="small"
-                    pagination={{ pageSize: 10, hideOnSinglePage: true, showTotal: (t) => `${t} IPs` }}
+                    pagination={{
+                      pageSize: 10,
+                      hideOnSinglePage: true,
+                      showTotal: (t) => `${t} IPs`,
+                    }}
                     scroll={{ y: 300 }}
                   />
                 </Card>
@@ -986,31 +1199,41 @@ const NetworkScanPage: React.FC = () => {
                   style={{ marginTop: 12 }}
                   title={
                     <Space>
-                      <ApartmentOutlined style={{ color: '#faad14' }} />
+                      <ApartmentOutlined style={{ color: "#faad14" }} />
                       <Typography.Text strong>
-                        Auto-Created Subnets ({infraResult.auto_created_subnet_cidrs.length})
+                        Auto-Created Subnets (
+                        {infraResult.auto_created_subnet_cidrs.length})
                       </Typography.Text>
-                      <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+                      <Typography.Text
+                        type="secondary"
+                        style={{ fontSize: 12, fontWeight: 400 }}
+                      >
                         — /24 subnets created automatically for unmatched IPs
                       </Typography.Text>
                     </Space>
                   }
                 >
                   <Table
-                    dataSource={infraResult.auto_created_subnet_cidrs.map((cidr) => ({ cidr, key: cidr }))}
+                    dataSource={infraResult.auto_created_subnet_cidrs.map(
+                      (cidr) => ({ cidr, key: cidr }),
+                    )}
                     columns={[
                       {
-                        title: 'CIDR',
-                        dataIndex: 'cidr',
+                        title: "CIDR",
+                        dataIndex: "cidr",
                         render: (v: string) => (
-                          <Typography.Text code copyable>{v}</Typography.Text>
+                          <Typography.Text code copyable>
+                            {v}
+                          </Typography.Text>
                         ),
                       },
                       {
-                        title: 'Name',
-                        key: 'name',
+                        title: "Name",
+                        key: "name",
                         render: () => (
-                          <Typography.Text type="secondary">Auto-created (scan)</Typography.Text>
+                          <Typography.Text type="secondary">
+                            Auto-created (scan)
+                          </Typography.Text>
                         ),
                       },
                     ]}

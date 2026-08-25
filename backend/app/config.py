@@ -34,6 +34,19 @@ class Settings(BaseSettings):
     LDAP_USER_FILTER: str = "(sAMAccountName={username})"
     LDAP_DEFAULT_ROLE: str = "Viewer"
 
+    # Check Availability — per-interface scan helper (runs on the host, outside Docker)
+    SCAN_HELPER_URL: str = ""
+    SCAN_HELPER_TOKEN: str = ""
+
+    # Check Availability — Device42 real-time lookup
+    DEVICE42_HOST: str = ""
+    DEVICE42_USERNAME: str = ""
+    DEVICE42_PASSWORD: str = ""
+
+    # Zabbix integration — real-time monitoring lookup + bulk discover/import
+    ZABBIX_HOST: str = ""
+    ZABBIX_TOKEN: str = ""
+
     @field_validator("VAULT_MASTER_KEY")
     @classmethod
     def validate_vault_master_key(cls, v: str) -> str:

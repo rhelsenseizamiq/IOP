@@ -1,26 +1,25 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from "react";
+import { Card, Typography, Row, Col, Button, Space, Tag, message } from "antd";
 import {
-  Card,
-  Typography,
-  Row,
-  Col,
-  Button,
-  Space,
-  Tag,
-  message,
-} from 'antd';
-import { BugOutlined, CloudServerOutlined, DatabaseOutlined, FireOutlined } from '@ant-design/icons';
-import { subnetsApi } from '../../api/subnets';
-import type { SubnetDetail } from '../../types/subnet';
-import VSphereImportDrawer from './VSphereImportDrawer';
-import Device42ImportDrawer from './Device42ImportDrawer';
-import PaloAltoImportDrawer from './PaloAltoImportDrawer';
+  BugOutlined,
+  CloudServerOutlined,
+  DatabaseOutlined,
+  FireOutlined,
+  DashboardOutlined,
+} from "@ant-design/icons";
+import { subnetsApi } from "../../api/subnets";
+import type { SubnetDetail } from "../../types/subnet";
+import VSphereImportDrawer from "./VSphereImportDrawer";
+import Device42ImportDrawer from "./Device42ImportDrawer";
+import PaloAltoImportDrawer from "./PaloAltoImportDrawer";
+import ZabbixImportDrawer from "./ZabbixImportDrawer";
 
 const IntegrationsPage: React.FC = () => {
   const [subnets, setSubnets] = useState<SubnetDetail[]>([]);
   const [vsphereOpen, setVsphereOpen] = useState(false);
   const [device42Open, setDevice42Open] = useState(false);
   const [paloaltoOpen, setPaloaltoOpen] = useState(false);
+  const [zabbixOpen, setZabbixOpen] = useState(false);
 
   const fetchSubnets = useCallback(async (): Promise<void> => {
     try {
@@ -36,7 +35,7 @@ const IntegrationsPage: React.FC = () => {
       }
       setSubnets(all);
     } catch {
-      void message.error('Failed to load subnets');
+      void message.error("Failed to load subnets");
     }
   }, []);
 
@@ -57,7 +56,9 @@ const IntegrationsPage: React.FC = () => {
             hoverable
             title={
               <Space>
-                <CloudServerOutlined style={{ color: '#1677ff', fontSize: 20 }} />
+                <CloudServerOutlined
+                  style={{ color: "#1677ff", fontSize: 20 }}
+                />
                 <span>VMware vSphere</span>
               </Space>
             }
@@ -83,7 +84,7 @@ const IntegrationsPage: React.FC = () => {
             hoverable
             title={
               <Space>
-                <DatabaseOutlined style={{ color: '#722ed1', fontSize: 20 }} />
+                <DatabaseOutlined style={{ color: "#722ed1", fontSize: 20 }} />
                 <span>Device42</span>
               </Space>
             }
@@ -96,7 +97,7 @@ const IntegrationsPage: React.FC = () => {
             <Button
               type="primary"
               icon={<DatabaseOutlined />}
-              style={{ background: '#722ed1', borderColor: '#722ed1' }}
+              style={{ background: "#722ed1", borderColor: "#722ed1" }}
               onClick={() => setDevice42Open(true)}
             >
               Open Device42 Import
@@ -110,15 +111,15 @@ const IntegrationsPage: React.FC = () => {
             hoverable
             title={
               <Space>
-                <FireOutlined style={{ color: '#f5222d', fontSize: 20 }} />
+                <FireOutlined style={{ color: "#f5222d", fontSize: 20 }} />
                 <span>PaloAlto Firewall</span>
               </Space>
             }
             extra={<Tag color="red">FW Import</Tag>}
           >
             <Typography.Paragraph type="secondary" style={{ minHeight: 60 }}>
-              Connect to PaloAlto firewall and collect address objects, interface
-              IPs, and ARP table entries to import as IPAM records.
+              Connect to PaloAlto firewall and collect address objects,
+              interface IPs, and ARP table entries to import as IPAM records.
             </Typography.Paragraph>
             <Button
               danger
@@ -131,12 +132,40 @@ const IntegrationsPage: React.FC = () => {
           </Card>
         </Col>
 
+        {/* Zabbix */}
+        <Col xs={24} sm={12} lg={8}>
+          <Card
+            hoverable
+            title={
+              <Space>
+                <DashboardOutlined style={{ color: "#d4380d", fontSize: 20 }} />
+                <span>Zabbix</span>
+              </Space>
+            }
+            extra={<Tag color="volcano">Live Monitoring</Tag>}
+          >
+            <Typography.Paragraph type="secondary" style={{ minHeight: 60 }}>
+              Connect to Zabbix (already configured) and import monitored hosts.
+              Also powers real-time availability checks — Zabbix actively polls
+              these hosts, so results reflect live status.
+            </Typography.Paragraph>
+            <Button
+              type="primary"
+              icon={<DashboardOutlined />}
+              style={{ background: "#d4380d", borderColor: "#d4380d" }}
+              onClick={() => setZabbixOpen(true)}
+            >
+              Open Zabbix Import
+            </Button>
+          </Card>
+        </Col>
+
         {/* DNS Scan */}
         <Col xs={24} sm={12} lg={8}>
           <Card
             title={
               <Space>
-                <BugOutlined style={{ color: '#52c41a', fontSize: 20 }} />
+                <BugOutlined style={{ color: "#52c41a", fontSize: 20 }} />
                 <span>DNS Conflict Detection</span>
               </Space>
             }
@@ -144,7 +173,7 @@ const IntegrationsPage: React.FC = () => {
           >
             <Typography.Paragraph type="secondary" style={{ minHeight: 60 }}>
               Detect forward/PTR mismatches and duplicate hostnames. Available
-              per-subnet via the{' '}
+              per-subnet via the{" "}
               <Typography.Text strong>Scan Conflicts</Typography.Text> button in
               the Subnets page.
             </Typography.Paragraph>
@@ -176,6 +205,14 @@ const IntegrationsPage: React.FC = () => {
         subnets={subnets}
         onClose={() => {
           setPaloaltoOpen(false);
+          void fetchSubnets();
+        }}
+      />
+      <ZabbixImportDrawer
+        open={zabbixOpen}
+        subnets={subnets}
+        onClose={() => {
+          setZabbixOpen(false);
           void fetchSubnets();
         }}
       />

@@ -1,0 +1,17 @@
+[Unit]
+Description=IOP scan helper - internal-only ping proxy for Check Availability
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=ansible
+EnvironmentFile=/opt/IOP/.env.scanhelper
+ExecStart=/usr/bin/python3 /opt/IOP/scripts/scan_helper.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

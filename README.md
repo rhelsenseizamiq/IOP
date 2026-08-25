@@ -1,6 +1,6 @@
 # IOP — Infrastructure Operations Platform
 
-A self-hosted IP Address Management portal with NetBox-style prefix hierarchy, dual-stack IPv4/IPv6, Device42 & PaloAlto integrations, real-time IP availability checks, infrastructure network scanning, Password Vault with folder organisation and secure sharing, and optional LDAP/AD authentication.
+A self-hosted IP Address Management portal with NetBox-style prefix hierarchy, dual-stack IPv4/IPv6, Device42 & Zabbix & PaloAlto integrations (with nightly automated sync), a human-friendly Unused IP Addresses view, real-time per-source IP availability checks, infrastructure network scanning, Password Vault with folder organisation and secure sharing, and optional LDAP/AD authentication.
 
 ---
 
@@ -84,6 +84,9 @@ docker compose build frontend api && docker compose up -d frontend api
 - Aggregates & RIRs — top-level address blocks
 - IP Ranges — named spans (e.g. DHCP pools) within a subnet
 - CSV import / export with validation and template download
+- **Unused IP Addresses** — for every subnet, shows every address with no IP record at all (distinct from "Free" status, which only covers addresses already recorded as available). Card-based summary across all subnets (sorted by most-available-first) with drill-down per subnet, an IP filter, and a one-click "Create IP Record" or "Check Availability" per address. Pure calculation from subnet CIDR minus what's recorded — no network scanning.
+
+> **Note:** VRFs, Aggregates, and Assets pages are currently disabled (nav hidden, routes redirect to Dashboard) as they're unused in this deployment. All code, routes, and backend routers are intact — see `frontend/src/App.tsx` and `frontend/src/components/layout/Sidebar.tsx` for the commented-out entries to re-enable.
 
 ### Dashboard & Operations
 - recharts dashboard: IP status donut, environment bar, OS bar, top subnets, recent activity
@@ -97,10 +100,28 @@ docker compose build frontend api && docker compose up -d frontend api
 - Infrastructure scan — scan multiple CIDRs, save IPs directly to DB
 
 ### Integrations
-- **Device42** — REST API IP/device discovery with OS mapping
+- **Device42** — REST API IP/device discovery with OS mapping. Credentials entered per-session in the Integrations UI.
+- **Zabbix** — JSON-RPC API (Bearer token auth), host + interface discovery. Credentials are server-configured only (`.env.api`), never entered in the browser — the Integrations card just discovers and lets you import directly.
 - **PaloAlto** — PAN-OS XML API: address objects, interface IPs, ARP table
 - **vSphere** — vCenter VM discovery via pyVmomi
 - **DNS conflict detection** — FORWARD_MISMATCH, PTR_MISMATCH, NO_FORWARD, DUPLICATE_HOSTNAME
+
+#### Nightly automated sync (Device42 + Zabbix)
+Both run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
+
+| Time | Job | Typical duration |
+|---|---|---|
+| 2:00 AM | Device42 full sync | ~25 min (~72k IPs) |
+| 2:35 AM | Zabbix full sync | ~2-5 sec (~475 hosts) |
+
+Device42 sets the baseline status from its own inventory `available` flag; Zabbix runs second and **only ever writes `"In Use"`** (upgrades on live positive evidence, or skips) — it can never undo a correct Device42-derived `Free`, so the two jobs can't produce conflicting data even if a run window ever grows to overlap. Zabbix hosts that are disabled *and* have no monitoring data in the last 6 months are treated as likely decommissioned and skipped entirely — never used as evidence to mark an address "In Use". Both wrapper scripts (`scripts/run_device42_sync.sh`, `scripts/run_zabbix_sync.sh`) use a lock file that auto-clears after 2 hours if a prior run was killed by a crash/reboot, so a stuck lock can't silently block every future run. See `scripts/README.md` for the full operational writeup.
+
+#### Check Availability (per-record, real-time)
+Right-click any IP (in IP Records or Unused IP Addresses) → Check Availability, choose the source:
+- **ens192 / ens224** — pings out through the host's real physical NICs via a small always-on helper service (`scripts/scan_helper.py`, systemd), not the API container's own bridge network
+- **Device42** — real-time inventory lookup (not a network probe); reports the assigned device, or that it's free. A miss never auto-changes status (Device42's inventory isn't guaranteed complete)
+- **Zabbix** — real-time live monitoring lookup; Zabbix actively polls its hosts, so a positive result auto-marks "In Use", but a miss/down result never auto-marks "Free"
+- **PaloAlto** — shown, currently disabled (not yet integrated for this check)
 
 ### Password Vault
 - Cabinet-based secret storage — each cabinet has a name, description, and explicit member list
@@ -649,6 +670,40 @@ All security fixes verified. All new features (folders, share links, password ge
 ---
 
 ## Changelog
+
+### v8.0.0 — Zabbix Integration, Automated Sync, Unused IPs Redesign, Security Hardening
+
+**New features**
+
+- **Zabbix integration** — JSON-RPC API client, host/interface discovery + bulk import, real-time single-IP lookup for Check Availability. Server-side-only credentials, no per-session form.
+- **Nightly automated sync** — Device42 (2:00 AM) and Zabbix (2:35 AM) run unattended via cron; Zabbix intentionally only ever upgrades a record to "In Use", never downgrades to "Free", so the two jobs can't conflict even if they overlap. Zabbix hosts disabled with no data in 6+ months are excluded (likely decommissioned).
+- **Check Availability, per real interface** — new host-side `scan_helper.py` (systemd) lets availability checks egress through the server's actual `ens192`/`ens224` NICs instead of always going through the API container's bridge/NAT path; added as two new Check Availability sources alongside Device42 and the new Zabbix source.
+- **Unused IP Addresses — redesigned** — card-based summary (stat tiles + per-subnet cards sorted by most-available) replacing a dense 8-column table across all subnets; fixed a real bug where the subnet dropdown silently 422'd and appeared empty (server caps `page_size` at 200, page was requesting 500) — now paginates properly; added IP filter and Check Availability directly on unused addresses.
+- **Ad-hoc availability check for addresses with no record yet** — new `POST /ip-records/check-ip` endpoint, used by the Unused IPs page.
+
+**Security fixes**
+
+- **LDAP filter injection** (CWE-90) — the login username was interpolated unescaped into the LDAP search filter; now passed through `ldap3`'s `escape_filter_chars()`
+- Added rate limiting to `/auth/refresh`, `/auth/change-password`, `/auth/request-role` (previously only login/register were throttled)
+- axios upgraded 1.13.6 → 1.19.0 (was in the vulnerable range for several real CVEs: SSRF via NO_PROXY bypass, prototype-pollution auth bypass, response tampering)
+- Blanked the dormant `INITIAL_ADMIN_PASSWORD` seed value in `.env.api` after confirming the admin account is stable (the seed-on-insert path is a no-op unless that account is ever deleted)
+- Added a missing MongoDB index on the `folders` collection (`cabinet_id`, and a compound `cabinet_id+parent_id+name`) — every Vault folder-tree load was a full collection scan
+- Narrowed `SubnetService.create()`'s reparenting query from a full VRF scan (1,300+ docs) to just the actual sibling candidates under the same parent
+
+**Bug fixes**
+
+- **Device42 status auto-update asymmetry** — a "Device42 has no record for this IP" result was auto-flipping existing "In Use" records to "Free"; Device42's inventory isn't guaranteed complete (e.g. assets tracked outside it), so a miss is no longer treated as proof of "unused" — only a positive match can auto-upgrade status now. Same principle applied to the new Zabbix check.
+- **Zabbix bulk sync over-eager status writes** — the initial sync marked every returned host "In Use" regardless of Zabbix's own `status` field; disabled hosts with 6+ months of no data are now excluded. A one-time reconciliation (`scripts/zabbix_reconcile.py`) cross-checked every record the buggy version had touched against live Device42 data — corrected 53 of 423 (8 removed as bug-only artifacts, 45 kept but re-confirmed via Device42).
+- Fixed Device42 API calls 404ing when the configured host had a trailing slash, producing a double-slash URL Device42's router doesn't recognize
+- Fixed a stale `INITIAL_ADMIN_PASSWORD`-adjacent regression: a container recreate (needed to pick up new env vars) reverted several in-flight code hot-patches, including a `SuperAdmin` role addition across ~20 routers and the entire Vault Folders feature (5 files) that had never been synced back to the host filesystem — full backend now kept byte-for-byte identical between the host filesystem and the running container after every deploy
+- Fixed the Network Scan page's mode-selector cards using hardcoded light-theme colors (`#fff`/`#d9d9d9`) against the app's dark theme
+
+**Operational**
+
+- All host-side automation scripts (sync jobs, cron wrappers, scan helper) are now version-controlled under `scripts/` — see `scripts/README.md`. Credentials remain server-only (`.env.device42`, `.env.zabbix`, `.env.scanhelper`), never committed.
+- Cron lock files now auto-clear after 2 hours if a prior run was killed by something outside the script's control (host crash, reboot) — previously a stuck lock could silently block every future run indefinitely.
+
+---
 
 ### v7.1.0 — TLS & Vault Polish
 

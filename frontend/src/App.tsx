@@ -12,14 +12,14 @@ import SubnetsPage from "./pages/Subnets/SubnetsPage";
 import NetworkScanPage from "./pages/NetworkScan/NetworkScanPage";
 import UsersPage from "./pages/Users/UsersPage";
 import AuditLogPage from "./pages/AuditLog/AuditLogPage";
-import VRFsPage from "./pages/VRFs/VRFsPage";
-import AggregatesPage from "./pages/Aggregates/AggregatesPage";
+// VRFsPage / AggregatesPage / AssetsPage — disabled, currently unused.
+// Re-enable by restoring these imports along with their <Route> elements.
 import IntegrationsPage from "./pages/Integrations/IntegrationsPage";
 import VaultPage from "./pages/Vault/VaultPage";
 import VaultLayout from "./components/layout/VaultLayout";
 import RegistrationPage from "./pages/Registration/RegistrationPage";
 import PendingApprovalsPage from "./pages/Users/PendingApprovalsPage";
-import AssetsPage from "./pages/Assets/AssetsPage";
+import UnusedIPsPage from "./pages/UnusedIPs/UnusedIPsPage";
 
 const SharePage = lazy(() => import("./pages/Share/SharePage"));
 const PasswordGeneratorPage = lazy(
@@ -129,25 +129,27 @@ const App: React.FC = () => (
             />
 
             <Route
-              path="/vrfs"
+              path="/unused-ips"
               element={
                 <ProtectedRoute requiredRole="Viewer">
                   <AppLayout>
-                    <VRFsPage />
+                    <UnusedIPsPage />
                   </AppLayout>
                 </ProtectedRoute>
               }
             />
 
+            {/* VRFs / Aggregates / Assets — disabled, currently unused.
+                Re-enable by restoring the original <Route> elements below
+                (see git history) and the matching Sidebar.tsx nav entries. */}
+            <Route
+              path="/vrfs"
+              element={<Navigate to="/dashboard" replace />}
+            />
+
             <Route
               path="/aggregates"
-              element={
-                <ProtectedRoute requiredRole="Operator">
-                  <AppLayout>
-                    <AggregatesPage />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
+              element={<Navigate to="/dashboard" replace />}
             />
 
             <Route
@@ -205,15 +207,12 @@ const App: React.FC = () => (
               }
             />
 
+            {/* Assets — disabled, currently unused. Re-enable by restoring
+                the original <Route> element (see git history) and the
+                matching Sidebar.tsx nav entry. */}
             <Route
               path="/assets"
-              element={
-                <ProtectedRoute requiredRole="Viewer">
-                  <AppLayout>
-                    <AssetsPage />
-                  </AppLayout>
-                </ProtectedRoute>
-              }
+              element={<Navigate to="/dashboard" replace />}
             />
 
             <Route

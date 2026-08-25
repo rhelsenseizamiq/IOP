@@ -160,8 +160,10 @@ class SubnetService:
         subnet = await self._subnets.create(doc)
 
         # Reparent subnets that are contained by the new subnet and share the same
-        # current parent — they should now be children of the new subnet
-        siblings = await self._subnets.find_all_in_vrf(vrf_id=data.vrf_id)
+        # current parent — they should now be children of the new subnet.
+        # Only the siblings under the same parent are ever eligible (checked
+        # below), so query just that set instead of the whole VRF.
+        siblings = await self._subnets.find_siblings(parent_id, data.vrf_id)
         to_reparent = []
         for s in siblings:
             if s.id == subnet.id:
@@ -246,6 +248,64 @@ class SubnetService:
                 reserved_ips=counts.get(IPStatus.RESERVED.value, 0),
             ))
         return result, total
+
+    # Hard cap on how many candidate addresses we ever walk per request —
+    # protects against pathological supernets (e.g. a /13 or /0 container
+    # subnet) while comfortably covering every realistic /16-or-smaller subnet.
+    _UNUSED_SCAN_CAP = 65536
+
+    async def list_unused_ips(
+        self, subnet_id: str, page: int = 1, page_size: int = 50, search: Optional[str] = None
+    ) -> "UnusedIPsResponse":
+        from app.schemas.subnet import UnusedIPsResponse
+
+        subnet = await self._subnets.find_by_id(subnet_id)
+        if subnet is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subnet not found")
+
+        try:
+            network = ipaddress.ip_network(subnet.cidr, strict=False)
+        except ValueError:
+            return UnusedIPsResponse(
+                subnet_id=subnet_id, cidr=subnet.cidr, items=[], total=0, page=page, page_size=page_size
+            )
+
+        used = await self._ips.find_used_addresses_by_subnet(subnet_id)
+        if subnet.gateway:
+            used.add(subnet.gateway)
+
+        search_term = search.strip() if search else None
+
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        items: list[str] = []
+        scanned = 0
+        unused_seen = 0
+        capped = False
+        for host in network.hosts():
+            scanned += 1
+            if scanned > self._UNUSED_SCAN_CAP:
+                capped = True
+                break
+            addr = str(host)
+            if addr in used:
+                continue
+            if search_term and search_term not in addr:
+                continue
+            if start <= unused_seen < end:
+                items.append(addr)
+            unused_seen += 1
+
+        return UnusedIPsResponse(
+            subnet_id=subnet_id,
+            cidr=subnet.cidr,
+            items=items,
+            total=unused_seen,
+            page=page,
+            page_size=page_size,
+            capped=capped,
+        )
 
     async def update(
         self,

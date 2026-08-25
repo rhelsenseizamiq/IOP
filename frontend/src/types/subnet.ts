@@ -1,4 +1,4 @@
-import type { Environment } from './ipRecord';
+import type { Environment } from "./ipRecord";
 
 export interface Subnet {
   id: string;
@@ -33,6 +33,16 @@ export interface SubnetTreeNode extends SubnetDetail {
   children: SubnetTreeNode[];
   key: string;
   utilization_pct: number;
+}
+
+export interface UnusedIPsResponse {
+  subnet_id: string;
+  cidr: string;
+  items: string[];
+  total: number;
+  page: number;
+  page_size: number;
+  capped: boolean;
 }
 
 export interface SubnetCreate {
