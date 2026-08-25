@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Card, Alert, Space, Tag, Divider } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import { authApi } from '../../api/auth';
+import React, { useState, useEffect } from "react";
+import { Form, Input, Button, Card, Alert, Space, Tag, Divider } from "antd";
+import { UserOutlined, LockOutlined } from "@ant-design/icons";
+import { useNavigate, useLocation, Navigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import { authApi } from "../../api/auth";
 
 interface LoginFormValues {
   username: string;
@@ -23,12 +23,15 @@ const LoginPage: React.FC = () => {
   const [ldapEnabled, setLdapEnabled] = useState(false);
 
   useEffect(() => {
-    authApi.config()
+    authApi
+      .config()
       .then((res) => setLdapEnabled(res.data.ldap_enabled))
-      .catch(() => {/* non-critical */});
+      .catch(() => {
+        /* non-critical */
+      });
   }, []);
 
-  const from = (location.state as LocationState)?.from?.pathname ?? '/';
+  const from = (location.state as LocationState)?.from?.pathname ?? "/";
 
   if (!isInitializing && isAuthenticated) {
     return <Navigate to={from} replace />;
@@ -41,14 +44,17 @@ const LoginPage: React.FC = () => {
       await login(values.username, values.password);
       navigate(from, { replace: true });
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
+      const axiosErr = err as {
+        response?: { status?: number; data?: { detail?: string } };
+        message?: string;
+      };
       const detail = axiosErr.response?.data?.detail;
-      if (typeof detail === 'string') {
+      if (typeof detail === "string") {
         setErrorMsg(detail);
       } else if (axiosErr.response?.status === 401) {
-        setErrorMsg('Invalid username or password');
+        setErrorMsg("Invalid username or password");
       } else {
-        setErrorMsg(axiosErr.message ?? 'Login failed. Please try again.');
+        setErrorMsg(axiosErr.message ?? "Login failed. Please try again.");
       }
     } finally {
       setLoading(false);
@@ -58,32 +64,50 @@ const LoginPage: React.FC = () => {
   return (
     <div
       style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #001529 0%, #003366 100%)',
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(135deg, #001529 0%, #003366 100%)",
       }}
     >
       <Card
         style={{
           width: 400,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
           borderRadius: 12,
         }}
-        bodyStyle={{ padding: '40px 40px 32px' }}
+        bodyStyle={{ padding: "40px 40px 32px" }}
       >
-        <Space direction="vertical" style={{ width: '100%' }} size={24}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{
-              background: 'linear-gradient(135deg, #1677ff 0%, #003366 100%)',
-              borderRadius: 10,
-              padding: '8px 20px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              marginBottom: 4,
-            }}>
-              <span style={{ color: '#fff', fontWeight: 900, fontSize: 22, letterSpacing: 4 }}>IOP</span>
+        <Space direction="vertical" style={{ width: "100%" }} size={24}>
+          <div
+            style={{
+              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <div
+              style={{
+                background: "linear-gradient(135deg, #1677ff 0%, #003366 100%)",
+                borderRadius: 10,
+                padding: "8px 20px",
+                display: "inline-flex",
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{
+                  color: "#fff",
+                  fontWeight: 900,
+                  fontSize: 22,
+                  letterSpacing: 4,
+                }}
+              >
+                IOP
+              </span>
             </div>
             {ldapEnabled && (
               <Tag color="purple" style={{ margin: 0 }}>
@@ -112,10 +136,12 @@ const LoginPage: React.FC = () => {
             <Form.Item
               name="username"
               label="Username"
-              rules={[{ required: true, message: 'Please enter your username' }]}
+              rules={[
+                { required: true, message: "Please enter your username" },
+              ]}
             >
               <Input
-                prefix={<UserOutlined style={{ color: '#bfbfbf' }} />}
+                prefix={<UserOutlined style={{ color: "#bfbfbf" }} />}
                 placeholder="Username"
                 autoComplete="username"
                 autoFocus
@@ -125,11 +151,13 @@ const LoginPage: React.FC = () => {
             <Form.Item
               name="password"
               label="Password"
-              rules={[{ required: true, message: 'Please enter your password' }]}
+              rules={[
+                { required: true, message: "Please enter your password" },
+              ]}
               style={{ marginBottom: 24 }}
             >
               <Input.Password
-                prefix={<LockOutlined style={{ color: '#bfbfbf' }} />}
+                prefix={<LockOutlined style={{ color: "#bfbfbf" }} />}
                 placeholder="Password"
                 autoComplete="current-password"
               />
@@ -148,11 +176,13 @@ const LoginPage: React.FC = () => {
             </Form.Item>
           </Form>
 
-          <Divider plain style={{ margin: '8px 0' }}>or</Divider>
+          <Divider plain style={{ margin: "8px 0" }}>
+            or
+          </Divider>
           <Button
             block
             style={{ height: 40, borderRadius: 6 }}
-            onClick={() => navigate('/register')}
+            onClick={() => navigate("/register")}
           >
             Create an account
           </Button>
