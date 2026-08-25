@@ -221,7 +221,42 @@ async def main():
         "errors": 0,
     }
     error_samples = []
+    run_error: str | None = None
 
+    try:
+        await _run_sync(subnet_repo, ip_repo, counters, error_samples, start)
+    except Exception as exc:
+        run_error = str(exc)
+        log.exception("device42 sync failed")
+
+    duration = time.time() - start
+    log.info("=== DONE in %.0fs ===", duration)
+    log.info("FINAL COUNTERS: %s", counters)
+    if error_samples:
+        log.info("SAMPLE ERRORS: %s", error_samples)
+
+    try:
+        await db["sync_status"].update_one(
+            {"_id": "device42"},
+            {"$set": {
+                "last_run_at": datetime.now(timezone.utc),
+                "status": "error" if run_error else "ok",
+                "duration_seconds": round(duration, 1),
+                "counters": counters,
+                "error": run_error,
+            }},
+            upsert=True,
+        )
+    except Exception:
+        log.exception("failed to write sync_status")
+
+    await close_mongo_connection()
+
+    if run_error:
+        raise RuntimeError(run_error)
+
+
+async def _run_sync(subnet_repo, ip_repo, counters, error_samples, start) -> None:
     async with httpx.AsyncClient(
         auth=(D42_USER, D42_PASS), verify=False, timeout=60.0, follow_redirects=True
     ) as client:
@@ -334,13 +369,6 @@ async def main():
             if MAX_IPS and offset >= MAX_IPS:
                 log.info("MAX_IPS cap (%d) reached, stopping test run early", MAX_IPS)
                 break
-
-    log.info("=== DONE in %.0fs ===", time.time() - start)
-    log.info("FINAL COUNTERS: %s", counters)
-    if error_samples:
-        log.info("SAMPLE ERRORS: %s", error_samples)
-
-    await close_mongo_connection()
 
 
 if __name__ == "__main__":

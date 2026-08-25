@@ -140,7 +140,42 @@ async def main() -> None:
         "errors": 0,
     }
     error_samples: list[str] = []
+    run_error: str | None = None
 
+    try:
+        await _run_sync(subnet_index, counters, error_samples, ip_repo)
+    except Exception as exc:
+        run_error = str(exc)
+        log.exception("zabbix sync failed")
+
+    duration = time.time() - start
+    log.info("=== DONE in %.0fs ===", duration)
+    log.info("FINAL COUNTERS: %s", counters)
+    if error_samples:
+        log.info("SAMPLE ERRORS: %s", error_samples)
+
+    try:
+        await db["sync_status"].update_one(
+            {"_id": "zabbix"},
+            {"$set": {
+                "last_run_at": datetime.now(timezone.utc),
+                "status": "error" if run_error else "ok",
+                "duration_seconds": round(duration, 1),
+                "counters": counters,
+                "error": run_error,
+            }},
+            upsert=True,
+        )
+    except Exception:
+        log.exception("failed to write sync_status")
+
+    await close_mongo_connection()
+
+    if run_error:
+        raise RuntimeError(run_error)
+
+
+async def _run_sync(subnet_index, counters, error_samples, ip_repo) -> None:
     async with httpx.AsyncClient(
         headers={"Authorization": f"Bearer {ZABBIX_TOKEN}"},
         verify=False,
@@ -217,13 +252,6 @@ async def main() -> None:
                     counters["errors"] += 1
                     if len(error_samples) < 30:
                         error_samples.append(f"{ip_addr}: {exc}")
-
-    log.info("=== DONE in %.0fs ===", time.time() - start)
-    log.info("FINAL COUNTERS: %s", counters)
-    if error_samples:
-        log.info("SAMPLE ERRORS: %s", error_samples)
-
-    await close_mongo_connection()
 
 
 if __name__ == "__main__":

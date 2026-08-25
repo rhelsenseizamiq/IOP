@@ -14,6 +14,14 @@ export interface ActivityItem {
   summary: string;
 }
 
+export interface SyncSourceStatus {
+  last_run_at: string | null;
+  status: "ok" | "error" | null;
+  duration_seconds: number | null;
+  counters: Record<string, number>;
+  error: string | null;
+}
+
 export interface DashboardStats {
   total_ips: number;
   status_breakdown: Record<string, number>;
@@ -28,4 +36,6 @@ export interface DashboardStats {
   ip_v6_count: number;
   critical_subnets: SubnetCritical[];
   recent_activity: ActivityItem[];
+  unused_ips_total: number;
+  sync_status: Record<string, SyncSourceStatus>;
 }

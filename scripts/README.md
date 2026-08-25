@@ -18,6 +18,12 @@ sources a `.env.*` file from `/opt/IOP/` on the server (`.env.device42`,
 | `iop-scan-helper.service` | systemd unit for `scan_helper.py`. |
 | `zabbix_reconcile.py` | One-time cleanup tool (kept for reference) — used once to fix IP records that `zabbix_sync.py` had incorrectly marked "In Use" before the disabled+stale exclusion existed. Dry-run by default; set `APPLY=1` to actually delete/update. Not part of any recurring job. |
 
+Both `device42_sync.py` and `zabbix_sync.py` upsert a one-document-per-source
+summary into the `sync_status` collection at the end of every run (`last_run_at`,
+`status: "ok"|"error"`, `duration_seconds`, `counters`, `error`) — even if the
+run itself throws partway through. The dashboard's "Data Sync Health" card
+reads this collection via `GET /stats` to show freshness/last-run info.
+
 ## Nightly schedule (crontab, `ansible` user)
 
 ```

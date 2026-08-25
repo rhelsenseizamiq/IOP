@@ -18,6 +18,10 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 
 _VIEWER_PLUS = require_role("Viewer", "Operator", "Administrator", "SuperAdmin")
 
+# Must match SubnetService._UNUSED_SCAN_CAP — keeps this dashboard total
+# consistent with what the Unused IPs page would actually show per subnet.
+_UNUSED_SCAN_CAP = 65536
+
 
 @router.get("")
 async def get_dashboard_stats(
@@ -57,6 +61,7 @@ async def get_dashboard_stats(
     ip_counts = await ip_repo.count_by_status_for_subnets(subnet_ids)
 
     subnet_utils = []
+    unused_ips_total = 0
     for subnet in all_subnets:
         counts = ip_counts.get(subnet.id, {})
         try:
@@ -74,6 +79,12 @@ async def get_dashboard_stats(
             "utilization_pct": utilization_pct,
             "alert_threshold": alert_threshold,
         })
+
+        # Unused = addresses in range with no IP record at all (any status),
+        # same definition as the Unused IPs page, capped the same way.
+        recorded = sum(counts.values())
+        capacity = min(total_ips_subnet, _UNUSED_SCAN_CAP)
+        unused_ips_total += max(capacity - recorded, 0)
 
     # IPv4 / IPv6 subnet + IP record counts
     subnet_v4_count = sum(1 for s in all_subnets if getattr(s, "ip_version", 4) == 4)
@@ -117,6 +128,23 @@ async def get_dashboard_stats(
         for log in logs
     ]
 
+    # Nightly sync health — written by scripts/device42_sync.py and
+    # scripts/zabbix_sync.py at the end of each cron run (see scripts/README.md)
+    sync_status: dict = {}
+    sync_docs = await db["sync_status"].find({}).to_list(length=10)
+    for doc in sync_docs:
+        source = doc.get("_id")
+        if not source:
+            continue
+        last_run_at = doc.get("last_run_at")
+        sync_status[source] = {
+            "last_run_at": last_run_at.isoformat() if last_run_at else None,
+            "status": doc.get("status"),
+            "duration_seconds": doc.get("duration_seconds"),
+            "counters": doc.get("counters", {}),
+            "error": doc.get("error"),
+        }
+
     return {
         "total_ips": total_ips,
         "status_breakdown": status_breakdown,
@@ -131,4 +159,6 @@ async def get_dashboard_stats(
         "total_aggregates": total_aggregates,
         "critical_subnets": critical_subnets,
         "recent_activity": recent_activity,
+        "unused_ips_total": unused_ips_total,
+        "sync_status": sync_status,
     }
