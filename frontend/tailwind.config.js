@@ -51,5 +51,12 @@ export default {
       },
     },
   },
+  // Preflight (Tailwind's CSS reset) clobbers Ant Design's own component
+  // styles (buttons, inputs, cards, etc.) since this app is AntD-first and
+  // Tailwind is only used for the shadcn scaffold components. Utilities and
+  // components layers stay enabled.
+  corePlugins: {
+    preflight: false,
+  },
   plugins: [],
-}
+};
