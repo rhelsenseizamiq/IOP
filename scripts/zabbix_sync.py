@@ -219,14 +219,18 @@ async def _run_sync(subnet_index, counters, error_samples, ip_repo) -> None:
                 try:
                     existing = await ip_repo.find_by_ip(ip_addr)
                     if existing is not None:
-                        await ip_repo.update(existing.id, {
+                        update_fields = {
                             "hostname": hostname,
                             "subnet_id": subnet_id,
                             "vrf_id": None,
-                            "status": "In Use",
                             "description": description,
                             "updated_by": "zabbix-sync",
-                        })
+                        }
+                        # Reserved is a manual, intentional hold that Zabbix
+                        # has no concept of — never let a sync clobber it.
+                        if existing.status.value != "Reserved":
+                            update_fields["status"] = "In Use"
+                        await ip_repo.update(existing.id, update_fields)
                         counters["ips_updated"] += 1
                     else:
                         now = datetime.now(timezone.utc)

@@ -201,7 +201,17 @@ async def export_ip_records(
     if owner:
         filter_["owner"] = {"$regex": re.escape(owner), "$options": "i"}
     if search:
-        filter_["$text"] = {"$search": search}
+        # Same substring match (incl. ip_address) as list_ip_records, so an
+        # export always matches what's currently shown on screen. $text
+        # search doesn't cover ip_address and does whole-word/stemmed
+        # matching, not substring — it silently produced different results.
+        escaped = re.escape(search)
+        filter_["$or"] = [
+            {"ip_address": {"$regex": escaped, "$options": "i"}},
+            {"hostname": {"$regex": escaped, "$options": "i"}},
+            {"owner": {"$regex": escaped, "$options": "i"}},
+            {"description": {"$regex": escaped, "$options": "i"}},
+        ]
 
     service = _build_service()
     records, cidr_map = await service.export_records(filter_)
@@ -701,6 +711,13 @@ async def _apply_ping_status(
 
     target_status = "In Use" if reachable else "Free"
     if record.status.value == target_status:
+        return False, None
+
+    # Reserved is a manual, intentional hold — an address not yet turned on
+    # is expected to not respond, so a failed check is not evidence the
+    # reservation should be released. Only let a *reachable* result upgrade
+    # Reserved -> In Use; never let an unreachable one downgrade it to Free.
+    if record.status.value == "Reserved" and target_status == "Free":
         return False, None
 
     db = get_database()

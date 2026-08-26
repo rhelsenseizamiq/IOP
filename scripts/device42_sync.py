@@ -314,16 +314,20 @@ async def _run_sync(subnet_repo, ip_repo, counters, error_samples, start) -> Non
                 try:
                     existing = await ip_repo.find_by_ip(ip_addr)
                     if existing is not None:
-                        await ip_repo.update(existing.id, {
+                        update_fields = {
                             "hostname": hostname,
                             "os_type": os_type,
                             "subnet_id": mongo_subnet_id,
                             "vrf_id": None,
-                            "status": ip_status,
                             "environment": environment,
                             "description": description,
                             "updated_by": "device42-sync",
-                        })
+                        }
+                        # Reserved is a manual, intentional hold that Device42
+                        # has no concept of — never let a sync clobber it.
+                        if existing.status.value != "Reserved":
+                            update_fields["status"] = ip_status
+                        await ip_repo.update(existing.id, update_fields)
                         counters["ips_updated"] += 1
                     else:
                         now = datetime.now(timezone.utc)
