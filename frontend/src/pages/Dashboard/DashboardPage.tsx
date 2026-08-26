@@ -394,7 +394,7 @@ const DashboardPage: React.FC = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 16, marginTop: 4 }}>
         {/* Donut */}
         <Col xs={24} lg={8}>
-          <Card title="IP Status" style={{ height: 280 }}>
+          <Card title="IP Status">
             <ResponsiveContainer width="100%" height={210}>
               <PieChart>
                 <Pie
