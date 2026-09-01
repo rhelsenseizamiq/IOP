@@ -15,6 +15,9 @@ import {
   Tooltip,
   Progress,
   Badge,
+  Modal,
+  Button,
+  Space,
 } from "antd";
 import {
   GlobalOutlined,
@@ -25,6 +28,8 @@ import {
   CheckCircleFilled,
   CloseCircleFilled,
   QuestionCircleFilled,
+  WifiOutlined,
+  ScanOutlined,
 } from "@ant-design/icons";
 import {
   PieChart,
@@ -48,16 +53,20 @@ import type {
   SubnetCritical,
   ActivityItem,
   SyncSourceStatus,
+  StaleInUseSample,
 } from "../../types/stats";
+import BulkCheckAvailabilityModal from "../../components/common/BulkCheckAvailabilityModal";
 
 dayjs.extend(relativeTime);
 
-// Nightly cron: Device42 @ 02:00 UTC, Zabbix @ 02:35 UTC. Flag as stale past
-// 27h so a single missed/delayed run doesn't false-alarm before the next one.
+// Nightly cron: Device42 @ 02:00 UTC, Zabbix @ 02:35 UTC, PaloAlto @ 02:50
+// UTC. Flag as stale past 27h so a single missed/delayed run doesn't
+// false-alarm before the next one.
 const SYNC_STALE_HOURS = 27;
 const SYNC_SOURCE_LABEL: Record<string, string> = {
   device42: "Device42",
   zabbix: "Zabbix",
+  paloalto: "PaloAlto",
 };
 
 // ── Minimal 3-colour palette ─────────────────────────────────────────────────
@@ -149,6 +158,10 @@ const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [staleModalOpen, setStaleModalOpen] = useState(false);
+  const [staleBulkScanIds, setStaleBulkScanIds] = useState<string[] | null>(
+    null,
+  );
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -297,7 +310,7 @@ const DashboardPage: React.FC = () => {
             }
           >
             <Row gutter={[16, 12]}>
-              {["device42", "zabbix"].map((source) => {
+              {["device42", "zabbix", "paloalto"].map((source) => {
                 const s = stats.sync_status[source];
                 const health = syncHealth(s);
                 const meta = SYNC_HEALTH_META[health];
@@ -307,7 +320,7 @@ const DashboardPage: React.FC = () => {
                   .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
                   .join(" · ");
                 return (
-                  <Col key={source} xs={24} sm={12}>
+                  <Col key={source} xs={24} sm={12} lg={8}>
                     <div
                       style={{
                         display: "flex",
@@ -389,6 +402,268 @@ const DashboardPage: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* PaloAlto Activity — real-time Check Availability lookups, distinct
+          from the nightly full-inventory sync shown above */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col span={24}>
+          <Card
+            size="small"
+            title={
+              <span>
+                <WifiOutlined style={{ marginRight: 8 }} />
+                PaloAlto Activity
+              </span>
+            }
+          >
+            <Row gutter={[16, 12]}>
+              <Col xs={12} sm={6} lg={4}>
+                <Statistic
+                  title="Checks (24h)"
+                  value={stats.paloalto_activity.checks_24h}
+                />
+              </Col>
+              <Col xs={12} sm={6} lg={4}>
+                <Statistic
+                  title="Checks (7d)"
+                  value={stats.paloalto_activity.checks_7d}
+                />
+              </Col>
+              <Col xs={24} sm={12} lg={5}>
+                <Statistic
+                  title="Found in-use (7d)"
+                  value={stats.paloalto_activity.found_pct_7d ?? "—"}
+                  suffix={
+                    stats.paloalto_activity.found_pct_7d !== null ? "%" : ""
+                  }
+                  valueStyle={{
+                    color:
+                      stats.paloalto_activity.found_pct_7d !== null
+                        ? ACCENT
+                        : DIM,
+                  }}
+                />
+              </Col>
+              <Col xs={24} lg={11}>
+                {stats.paloalto_activity.recent_checks.length === 0 ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    No PaloAlto checks yet — use Check Availability on an IP
+                    record to see activity here.
+                  </Typography.Text>
+                ) : (
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                  >
+                    {stats.paloalto_activity.recent_checks.map((c, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          fontSize: 12,
+                        }}
+                      >
+                        {c.found ? (
+                          <CheckCircleFilled
+                            style={{ color: ACCENT, flexShrink: 0 }}
+                          />
+                        ) : (
+                          <CloseCircleFilled
+                            style={{ color: DIM, flexShrink: 0 }}
+                          />
+                        )}
+                        <Typography.Text code style={{ fontSize: 12 }}>
+                          {c.ip_address}
+                        </Typography.Text>
+                        {c.hostname && (
+                          <Typography.Text
+                            type="secondary"
+                            ellipsis
+                            style={{ fontSize: 12, maxWidth: 140 }}
+                          >
+                            {c.hostname}
+                          </Typography.Text>
+                        )}
+                        <Typography.Text
+                          type="secondary"
+                          style={{
+                            fontSize: 11,
+                            marginLeft: "auto",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {dayjs(c.checked_at).fromNow()} · {c.checked_by}
+                        </Typography.Text>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Stale "In Use" records — not re-confirmed by any source in a while */}
+      {stats.stale_in_use.count > 0 && (
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+          <Col span={24}>
+            <Card
+              size="small"
+              title={
+                <span>
+                  <WarningOutlined style={{ marginRight: 8, color: WARN }} />
+                  Stale &quot;In Use&quot; Records
+                </span>
+              }
+            >
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {stats.stale_in_use.count} record
+                {stats.stale_in_use.count === 1 ? "" : "s"} marked In Use
+                haven&apos;t been re-confirmed by Device42, Zabbix, PaloAlto, or
+                a manual check in over {stats.stale_in_use.threshold_days} days.
+                Nothing has been changed — worth a manual look.
+              </Typography.Text>
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                {stats.stale_in_use.samples.slice(0, 8).map((s) => (
+                  <div
+                    key={s.ip_address}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 12,
+                    }}
+                  >
+                    <Typography.Text code style={{ fontSize: 12 }}>
+                      {s.ip_address}
+                    </Typography.Text>
+                    {s.hostname && (
+                      <Typography.Text
+                        type="secondary"
+                        ellipsis
+                        style={{ fontSize: 12, maxWidth: 220 }}
+                      >
+                        {s.hostname}
+                      </Typography.Text>
+                    )}
+                    <Typography.Text
+                      type="warning"
+                      style={{
+                        fontSize: 11,
+                        marginLeft: "auto",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {s.days_since_update !== null
+                        ? `${s.days_since_update}d since last confirmation`
+                        : "unknown"}
+                    </Typography.Text>
+                  </div>
+                ))}
+                {stats.stale_in_use.count > 8 && (
+                  <Typography.Link
+                    style={{ fontSize: 12, marginTop: 4 }}
+                    onClick={() => setStaleModalOpen(true)}
+                  >
+                    View all {stats.stale_in_use.count} →
+                  </Typography.Link>
+                )}
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* Stale In-Use — full list modal */}
+      {stats.stale_in_use.count > 0 && (
+        <Modal
+          title={`Stale "In Use" Records (${stats.stale_in_use.count})`}
+          open={staleModalOpen}
+          onCancel={() => setStaleModalOpen(false)}
+          footer={
+            <Button onClick={() => setStaleModalOpen(false)}>Close</Button>
+          }
+          width={720}
+        >
+          <Space style={{ marginBottom: 8 }}>
+            <Button
+              size="small"
+              icon={<ScanOutlined />}
+              onClick={() =>
+                setStaleBulkScanIds(stats.stale_in_use.samples.map((s) => s.id))
+              }
+            >
+              Bulk Scan All ({stats.stale_in_use.samples.length} records)
+            </Button>
+          </Space>
+          <Table<StaleInUseSample>
+            dataSource={stats.stale_in_use.samples}
+            rowKey="ip_address"
+            size="small"
+            pagination={{ pageSize: 10, showSizeChanger: false }}
+            columns={[
+              {
+                title: "IP Address",
+                dataIndex: "ip_address",
+                key: "ip_address",
+                render: (v: string) => (
+                  <Typography.Text code style={{ fontSize: 12 }}>
+                    {v}
+                  </Typography.Text>
+                ),
+              },
+              {
+                title: "Hostname",
+                dataIndex: "hostname",
+                key: "hostname",
+                ellipsis: true,
+                render: (v: string | null) => v ?? "—",
+              },
+              {
+                title: "Updated By",
+                dataIndex: "updated_by",
+                key: "updated_by",
+                render: (v: string | null) => v ?? "—",
+              },
+              {
+                title: "Since Last Confirmation",
+                dataIndex: "days_since_update",
+                key: "days_since_update",
+                sorter: (a, b) =>
+                  (a.days_since_update ?? 0) - (b.days_since_update ?? 0),
+                defaultSortOrder: "descend",
+                render: (v: number | null) =>
+                  v !== null ? `${v}d` : "unknown",
+              },
+            ]}
+          />
+          {stats.stale_in_use.count > stats.stale_in_use.samples.length && (
+            <Typography.Text
+              type="secondary"
+              style={{ fontSize: 12, display: "block", marginTop: 8 }}
+            >
+              Showing the oldest {stats.stale_in_use.samples.length} of{" "}
+              {stats.stale_in_use.count} total.
+            </Typography.Text>
+          )}
+        </Modal>
+      )}
+
+      <BulkCheckAvailabilityModal
+        open={!!staleBulkScanIds}
+        onClose={() => setStaleBulkScanIds(null)}
+        ids={staleBulkScanIds ?? []}
+        onUpdated={() => void fetchStats()}
+      />
 
       {/* Charts row */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16, marginTop: 4 }}>

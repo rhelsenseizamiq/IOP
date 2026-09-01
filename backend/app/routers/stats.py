@@ -1,5 +1,6 @@
 import ipaddress
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
 
@@ -128,8 +129,9 @@ async def get_dashboard_stats(
         for log in logs
     ]
 
-    # Nightly sync health — written by scripts/device42_sync.py and
-    # scripts/zabbix_sync.py at the end of each cron run (see scripts/README.md)
+    # Nightly sync health — written by scripts/device42_sync.py,
+    # scripts/zabbix_sync.py, and scripts/paloalto_sync.py at the end of
+    # each cron run (see scripts/README.md)
     sync_status: dict = {}
     sync_docs = await db["sync_status"].find({}).to_list(length=10)
     for doc in sync_docs:
@@ -144,6 +146,85 @@ async def get_dashboard_stats(
             "counters": doc.get("counters", {}),
             "error": doc.get("error"),
         }
+
+    # PaloAlto Check Availability activity — separate from the nightly sync
+    # above: this reflects real-time on-demand lookups (paloalto_check_logs,
+    # 30-day TTL), not the once-a-night full inventory pull.
+    now = datetime.now(timezone.utc)
+    day_ago = now - timedelta(hours=24)
+    week_ago = now - timedelta(days=7)
+    paloalto_logs = db["paloalto_check_logs"]
+
+    checks_24h = await paloalto_logs.count_documents({"checked_at": {"$gte": day_ago}})
+    checks_7d = await paloalto_logs.count_documents({"checked_at": {"$gte": week_ago}})
+    checks_7d_found = await paloalto_logs.count_documents({
+        "checked_at": {"$gte": week_ago}, "found": True,
+    })
+    found_pct_7d = round(checks_7d_found / checks_7d * 100, 1) if checks_7d else None
+
+    recent_checks = []
+    cursor = paloalto_logs.find(
+        {},
+        {"_id": 0, "ip_address": 1, "found": 1, "hostname": 1, "checked_by": 1, "checked_at": 1},
+    ).sort("checked_at", -1).limit(5)
+    async for doc in cursor:
+        checked_at = doc.get("checked_at")
+        recent_checks.append({
+            "ip_address": doc.get("ip_address"),
+            "found": doc.get("found", False),
+            "hostname": doc.get("hostname"),
+            "checked_by": doc.get("checked_by"),
+            "checked_at": checked_at.isoformat() if checked_at else None,
+        })
+
+    paloalto_activity = {
+        "checks_24h": checks_24h,
+        "checks_7d": checks_7d,
+        "found_pct_7d": found_pct_7d,
+        "recent_checks": recent_checks,
+    }
+
+    # Stale "In Use" records — every write path that confirms a record is
+    # still in use (nightly Device42/Zabbix/PaloAlto sync, or a manual Check
+    # Availability) bumps updated_at via IPRecordRepository.update(), even
+    # when no field value actually changes. So an old updated_at on an
+    # "In Use" record genuinely means none of the three sources — nor a
+    # person — has re-confirmed it in that long; purely informational, no
+    # status is touched here.
+    _STALE_DAYS = 90
+    # Motor/PyMongo returns naive datetimes (already UTC) for values stored
+    # by the rest of the app (e.g. IPRecordRepository.update() uses
+    # datetime.now(timezone.utc) but Mongo strips tzinfo on round-trip) — mixing
+    # that with an aware `now` raises TypeError on subtraction, so compare
+    # in the naive domain here specifically.
+    now_naive = now.replace(tzinfo=None)
+    stale_cutoff = now_naive - timedelta(days=_STALE_DAYS)
+    stale_filter = {"status": IPStatus.IN_USE.value, "updated_at": {"$lt": stale_cutoff}}
+    ip_records_col = db["ip_records"]
+
+    _STALE_SAMPLE_CAP = 500
+    stale_count = await ip_records_col.count_documents(stale_filter)
+    stale_samples = []
+    stale_cursor = ip_records_col.find(
+        stale_filter,
+        {"ip_address": 1, "hostname": 1, "updated_at": 1, "updated_by": 1},
+    ).sort("updated_at", 1).limit(_STALE_SAMPLE_CAP)
+    async for doc in stale_cursor:
+        updated_at = doc.get("updated_at")
+        stale_samples.append({
+            "id": str(doc["_id"]),
+            "ip_address": doc.get("ip_address"),
+            "hostname": doc.get("hostname"),
+            "updated_by": doc.get("updated_by"),
+            "updated_at": updated_at.isoformat() if updated_at else None,
+            "days_since_update": (now_naive - updated_at).days if updated_at else None,
+        })
+
+    stale_in_use = {
+        "threshold_days": _STALE_DAYS,
+        "count": stale_count,
+        "samples": stale_samples,
+    }
 
     return {
         "total_ips": total_ips,
@@ -161,4 +242,6 @@ async def get_dashboard_stats(
         "recent_activity": recent_activity,
         "unused_ips_total": unused_ips_total,
         "sync_status": sync_status,
+        "paloalto_activity": paloalto_activity,
+        "stale_in_use": stale_in_use,
     }
