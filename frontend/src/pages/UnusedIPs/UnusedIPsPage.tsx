@@ -9,9 +9,6 @@ import {
   Alert,
   Input,
   Progress,
-  Dropdown,
-  Spin,
-  notification,
   Card,
   Row,
   Col,
@@ -19,24 +16,21 @@ import {
   Empty,
   Pagination,
 } from "antd";
-import type { MenuProps } from "antd";
 import {
   PlusOutlined,
   ArrowLeftOutlined,
   SearchOutlined,
   WifiOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
   InboxOutlined,
   DatabaseOutlined,
   RiseOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { subnetsApi } from "../../api/subnets";
-import { ipRecordsApi } from "../../api/ipRecords";
+import { useAuth } from "../../context/AuthContext";
 import type { SubnetDetail } from "../../types/subnet";
-import type { ScanSource } from "../../types/integrations";
 import { ENV_COLOR } from "../../constants/environments";
+import CheckAvailabilityModal from "../../components/common/CheckAvailabilityModal";
 
 const DETAIL_PAGE_SIZE = 50;
 const SUBNET_FETCH_PAGE_SIZE = 200; // server-enforced max
@@ -65,6 +59,7 @@ async function fetchAllSubnets(): Promise<SubnetDetail[]> {
 
 const UnusedIPsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [subnets, setSubnets] = useState<SubnetDetail[]>([]);
@@ -83,7 +78,7 @@ const UnusedIPsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailSearch, setDetailSearch] = useState("");
-  const [checkingIp, setCheckingIp] = useState<string | null>(null);
+  const [checkAvailIp, setCheckAvailIp] = useState<string | null>(null);
 
   useEffect(() => {
     setSubnetsLoading(true);
@@ -145,68 +140,6 @@ const UnusedIPsPage: React.FC = () => {
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailSearch]);
-
-  const checkAvailability = useCallback(
-    async (ip: string, scanSource?: ScanSource): Promise<void> => {
-      setCheckingIp(ip);
-      try {
-        const res = await ipRecordsApi.checkIp(ip, scanSource);
-        const { reachable, latency_ms, method, scan_source, device_name } =
-          res.data;
-        const isDevice42 = scan_source === "device42";
-        const isZabbix = scan_source === "zabbix";
-        const isInventorySource = isDevice42 || isZabbix;
-        const sourceName = isDevice42 ? "Device42" : "Zabbix";
-        const sourceLabel = scan_source ? ` · via ${scan_source}` : "";
-        if (reachable) {
-          notification.success({
-            message: isInventorySource
-              ? isZabbix
-                ? `${ip} is up in Zabbix`
-                : `${ip} is assigned in Device42`
-              : `${ip} is reachable`,
-            description: isInventorySource
-              ? `Device: ${device_name ?? "unknown"}`
-              : `Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ""}${sourceLabel}`,
-            icon: <CheckCircleOutlined style={{ color: "#52c41a" }} />,
-            duration: 6,
-          });
-        } else {
-          notification.warning({
-            message: isInventorySource
-              ? `No ${sourceName} record for ${ip}`
-              : `${ip} did not respond`,
-            description: isInventorySource
-              ? isZabbix
-                ? "Zabbix has no host on this address, or it's currently reporting down."
-                : "Device42 has no device assigned to this address."
-              : `Method: ${method}${sourceLabel} — appears unused, consistent with this list`,
-            icon: (
-              <CloseCircleOutlined
-                style={{ color: isInventorySource ? "#8c8c8c" : "#faad14" }}
-              />
-            ),
-            duration: 6,
-          });
-        }
-      } catch (err: unknown) {
-        const axiosErr = err as {
-          response?: { data?: { detail?: string } };
-          message?: string;
-        };
-        notification.error({
-          message: `Check failed for ${ip}`,
-          description:
-            axiosErr.response?.data?.detail ??
-            axiosErr.message ??
-            "Unknown error",
-        });
-      } finally {
-        setCheckingIp(null);
-      }
-    },
-    [],
-  );
 
   const openSubnet = (id: string): void => {
     setSelectedSubnetId(id);
@@ -297,48 +230,16 @@ const UnusedIPsPage: React.FC = () => {
       key: "actions",
       width: 320,
       render: (_: unknown, ip: string) => {
-        const checkMenuItems: MenuProps["items"] = [
-          {
-            key: "ens192",
-            label: "ens192 (172.31.3.166)",
-            onClick: () => void checkAvailability(ip, "ens192"),
-          },
-          {
-            key: "ens224",
-            label: "ens224 (10.160.30.22)",
-            onClick: () => void checkAvailability(ip, "ens224"),
-          },
-          {
-            key: "device42",
-            label: "Device42",
-            onClick: () => void checkAvailability(ip, "device42"),
-          },
-          {
-            key: "zabbix",
-            label: "Zabbix",
-            onClick: () => void checkAvailability(ip, "zabbix"),
-          },
-          {
-            key: "paloalto",
-            label: "PaloAlto",
-            disabled: true,
-          },
-        ];
+        if (!hasRole("Administrator")) return null;
         return (
           <Space size={4}>
-            <Dropdown menu={{ items: checkMenuItems }} trigger={["click"]}>
-              <Button
-                size="small"
-                disabled={checkingIp === ip}
-                icon={<WifiOutlined />}
-              >
-                {checkingIp === ip ? (
-                  <Spin size="small" />
-                ) : (
-                  "Check Availability"
-                )}
-              </Button>
-            </Dropdown>
+            <Button
+              size="small"
+              icon={<WifiOutlined />}
+              onClick={() => setCheckAvailIp(ip)}
+            >
+              Check Availability
+            </Button>
             <Button
               size="small"
               icon={<PlusOutlined />}
@@ -619,6 +520,16 @@ const UnusedIPsPage: React.FC = () => {
           />
         </>
       )}
+
+      <CheckAvailabilityModal
+        open={!!checkAvailIp}
+        onClose={() => setCheckAvailIp(null)}
+        ipAddress={checkAvailIp ?? ""}
+        onUpdated={() => {
+          if (selectedSubnetId)
+            void fetchUnused(selectedSubnetId, page, detailSearch);
+        }}
+      />
     </div>
   );
 };

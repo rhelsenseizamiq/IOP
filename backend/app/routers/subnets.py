@@ -111,7 +111,7 @@ async def list_subnets(
 async def create_subnet(
     request: Request,
     body: SubnetCreate,
-    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+    current_user: UserInToken = Depends(_ADMIN_ONLY),
 ) -> SubnetResponse:
     service = _build_service()
     return await service.create(
@@ -137,7 +137,7 @@ async def update_subnet(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
     request: Request,
     body: SubnetUpdate,
-    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+    current_user: UserInToken = Depends(_ADMIN_ONLY),
 ) -> SubnetResponse:
     service = _build_service()
     return await service.update(
@@ -154,7 +154,7 @@ async def patch_subnet(
     id: Annotated[str, Path(pattern=_OBJECTID_PATTERN)],
     request: Request,
     body: SubnetUpdate,
-    current_user: UserInToken = Depends(_OPERATOR_PLUS),
+    current_user: UserInToken = Depends(_ADMIN_ONLY),
 ) -> SubnetResponse:
     service = _build_service()
     return await service.update(

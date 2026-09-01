@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Alert,
@@ -12,21 +12,17 @@ import {
   Row,
   Select,
   Space,
-  Spin,
   Table,
   Tag,
   Tooltip,
   Typography,
   message,
-  notification,
-  Progress,
 } from "antd";
 const { useWatch } = Form;
 import {
   ApartmentOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
   DeleteOutlined,
+  DiffOutlined,
   DownloadOutlined,
   EditOutlined,
   HistoryOutlined,
@@ -37,7 +33,6 @@ import {
   UnlockOutlined,
   UploadOutlined,
   WifiOutlined,
-  LoadingOutlined,
 } from "@ant-design/icons";
 import type { MenuProps } from "antd";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
@@ -51,6 +46,8 @@ import IPRecordHistoryDrawer from "./IPRecordHistoryDrawer";
 import { useAuth } from "../../context/AuthContext";
 import StatusBadge from "../../components/common/StatusBadge";
 import OSIcon from "../../components/common/OSIcon";
+import CheckAvailabilityModal from "../../components/common/CheckAvailabilityModal";
+import DuplicatesModal from "../../components/common/DuplicatesModal";
 import type {
   IPRecord,
   IPRecordCreate,
@@ -61,7 +58,6 @@ import type {
   IPRecordFilters,
 } from "../../types/ipRecord";
 import type { SubnetDetail, SubnetCreate } from "../../types/subnet";
-import type { ScanSource } from "../../types/integrations";
 import { ENV_OPTIONS, ENV_COLOR } from "../../constants/environments";
 
 const OS_OPTIONS: OSType[] = [
@@ -136,16 +132,16 @@ const IPRecordsPage: React.FC = () => {
   // Import / export modal state
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // History drawer
   const [historyRecord, setHistoryRecord] = useState<IPRecord | null>(null);
 
-  // Ping / availability check
-  const [pingingId, setPingingId] = useState<string | null>(null);
-  const [pingTarget, setPingTarget] = useState<string | null>(null);
-  const [pingProgress, setPingProgress] = useState(0);
-  const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Check Availability (merged Device42 + Zabbix + PaloAlto)
+  const [checkAvailRecord, setCheckAvailRecord] = useState<IPRecord | null>(
+    null,
+  );
 
   // Row selection + bulk actions
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -428,99 +424,6 @@ const IPRecordsPage: React.FC = () => {
     [currentPage, filters, fetchRecords],
   );
 
-  const handlePing = useCallback(
-    async (record: IPRecord, scanSource?: ScanSource): Promise<void> => {
-      setPingingId(record.id);
-      setPingTarget(record.ip_address);
-      setPingProgress(0);
-      if (pingTimerRef.current) clearInterval(pingTimerRef.current);
-      let prog = 0;
-      pingTimerRef.current = setInterval(() => {
-        prog = Math.min(92, prog + 8 + Math.random() * 7);
-        setPingProgress(Math.round(prog));
-      }, 220);
-      try {
-        const res = await ipRecordsApi.ping(record.id, true, scanSource);
-        if (pingTimerRef.current) {
-          clearInterval(pingTimerRef.current);
-          pingTimerRef.current = null;
-        }
-        setPingProgress(100);
-        const {
-          reachable,
-          latency_ms,
-          method,
-          status_updated,
-          new_status,
-          scan_source,
-          device_name,
-        } = res.data;
-        const sourceLabel = scan_source ? ` · via ${scan_source}` : "";
-        const isDevice42 = scan_source === "device42";
-        const isZabbix = scan_source === "zabbix";
-        const isInventorySource = isDevice42 || isZabbix;
-        const sourceName = isDevice42 ? "Device42" : "Zabbix";
-        if (reachable) {
-          notification.success({
-            message: isInventorySource
-              ? isZabbix
-                ? `${record.ip_address} is up in Zabbix`
-                : `${record.ip_address} is assigned in Device42`
-              : `${record.ip_address} is reachable`,
-            description: isInventorySource
-              ? `Device: ${device_name ?? "unknown"}${status_updated ? ` · Status updated to ${new_status ?? "In Use"}` : ""}`
-              : status_updated
-                ? `Status updated to ${new_status ?? "In Use"} · Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ""}${sourceLabel}`
-                : `Method: ${method}${latency_ms !== null ? ` · ${latency_ms} ms` : ""}${sourceLabel}`,
-            icon: <CheckCircleOutlined style={{ color: "#52c41a" }} />,
-            duration: 6,
-          });
-        } else {
-          notification.warning({
-            message: isInventorySource
-              ? `No ${sourceName} record for ${record.ip_address}`
-              : `${record.ip_address} did not respond`,
-            description: isInventorySource
-              ? isZabbix
-                ? "Zabbix has no host on this address, or it's currently reporting down — this does not necessarily mean it's unused. Status was not changed."
-                : "Device42 has no device assigned to this address — this does not necessarily mean it's unused (e.g. assets tracked outside Device42). Status was not changed."
-              : (status_updated
-                  ? `Status updated to ${new_status ?? "Free"} — IP is available for use`
-                  : "IP does not appear to be in use") + sourceLabel,
-            icon: (
-              <CloseCircleOutlined
-                style={{ color: isInventorySource ? "#8c8c8c" : "#faad14" }}
-              />
-            ),
-            duration: 7,
-          });
-        }
-        if (status_updated) {
-          void fetchRecords(currentPage, filters);
-        }
-      } catch (err: unknown) {
-        if (pingTimerRef.current) {
-          clearInterval(pingTimerRef.current);
-          pingTimerRef.current = null;
-        }
-        const axiosErr = err as {
-          response?: { data?: { detail?: string } };
-          message?: string;
-        };
-        void message.error(
-          axiosErr.response?.data?.detail ?? "Ping check failed",
-        );
-      } finally {
-        setTimeout(() => {
-          setPingingId(null);
-          setPingTarget(null);
-          setPingProgress(0);
-        }, 900);
-      }
-    },
-    [currentPage, filters, fetchRecords],
-  );
-
   const handleBulkReserve = useCallback(async (): Promise<void> => {
     const ids = selectedRowKeys as string[];
     try {
@@ -611,51 +514,20 @@ const IPRecordsPage: React.FC = () => {
       key: "ip_address",
       width: 160,
       render: (v: string, record: IPRecord) => {
-        const contextMenuItems: MenuProps["items"] = [
-          {
-            key: "ping",
-            label:
-              pingingId === record.id ? (
-                <Space>
-                  <Spin size="small" />
-                  <span>Checking...</span>
-                </Space>
-              ) : (
-                <Space>
-                  <WifiOutlined />
-                  <span>Check Availability</span>
-                </Space>
-              ),
-            disabled: pingingId === record.id,
-            children: [
+        const contextMenuItems: MenuProps["items"] = hasRole("Administrator")
+          ? [
               {
-                key: "ping-ens192",
-                label: "ens192 (172.31.3.166)",
-                onClick: () => void handlePing(record, "ens192"),
+                key: "check-availability",
+                label: (
+                  <Space>
+                    <WifiOutlined />
+                    <span>Check Availability</span>
+                  </Space>
+                ),
+                onClick: () => setCheckAvailRecord(record),
               },
-              {
-                key: "ping-ens224",
-                label: "ens224 (10.160.30.22)",
-                onClick: () => void handlePing(record, "ens224"),
-              },
-              {
-                key: "ping-device42",
-                label: "Device42",
-                onClick: () => void handlePing(record, "device42"),
-              },
-              {
-                key: "ping-zabbix",
-                label: "Zabbix",
-                onClick: () => void handlePing(record, "zabbix"),
-              },
-              {
-                key: "ping-paloalto",
-                label: "PaloAlto",
-                disabled: true,
-              },
-            ],
-          },
-        ];
+            ]
+          : [];
         return (
           <Dropdown
             menu={{ items: contextMenuItems }}
@@ -734,7 +606,7 @@ const IPRecordsPage: React.FC = () => {
               onClick={() => setHistoryRecord(record)}
             />
           </Tooltip>
-          {hasRole("Operator") && record.status === "Free" && (
+          {hasRole("Administrator") && record.status === "Free" && (
             <Tooltip title="Reserve">
               <Button
                 size="small"
@@ -743,7 +615,7 @@ const IPRecordsPage: React.FC = () => {
               />
             </Tooltip>
           )}
-          {hasRole("Operator") && record.status === "Reserved" && (
+          {hasRole("Administrator") && record.status === "Reserved" && (
             <Tooltip title="Release">
               <Button
                 size="small"
@@ -752,7 +624,7 @@ const IPRecordsPage: React.FC = () => {
               />
             </Tooltip>
           )}
-          {hasRole("Operator") && (
+          {hasRole("Administrator") && (
             <Tooltip title="Edit">
               <Button
                 size="small"
@@ -805,7 +677,13 @@ const IPRecordsPage: React.FC = () => {
           >
             Export
           </Button>
-          {hasRole("Operator") && (
+          <Button
+            icon={<DiffOutlined />}
+            onClick={() => setDuplicatesOpen(true)}
+          >
+            Show Duplicates
+          </Button>
+          {hasRole("Administrator") && (
             <Button
               icon={<UploadOutlined />}
               onClick={() => setImportOpen(true)}
@@ -813,7 +691,7 @@ const IPRecordsPage: React.FC = () => {
               Import
             </Button>
           )}
-          {hasRole("Operator") && (
+          {hasRole("Administrator") && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               Add IP
             </Button>
@@ -908,7 +786,7 @@ const IPRecordsPage: React.FC = () => {
         </Col>
       </Row>
 
-      {selectedRowKeys.length > 0 && hasRole("Operator") && (
+      {selectedRowKeys.length > 0 && hasRole("Administrator") && (
         <Alert
           style={{ marginBottom: 8 }}
           message={
@@ -976,6 +854,11 @@ const IPRecordsPage: React.FC = () => {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={() => void fetchRecords(currentPage, filters)}
+      />
+
+      <DuplicatesModal
+        open={duplicatesOpen}
+        onClose={() => setDuplicatesOpen(false)}
       />
 
       <IPRecordHistoryDrawer
@@ -1246,58 +1129,14 @@ const IPRecordsPage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-      {/* Ping / Availability Check Progress Modal */}
-      <Modal
-        open={!!pingTarget}
-        footer={null}
-        closable={false}
-        width={340}
-        centered
-        title={
-          <Space>
-            <WifiOutlined style={{ color: "#1677ff" }} />
-            <span>Checking Availability</span>
-          </Space>
-        }
-      >
-        <div style={{ textAlign: "center", padding: "20px 0 8px" }}>
-          <Typography.Text
-            type="secondary"
-            style={{ display: "block", marginBottom: 20 }}
-          >
-            Probing{" "}
-            <Typography.Text code strong>
-              {pingTarget}
-            </Typography.Text>
-            …
-          </Typography.Text>
-          <Progress
-            type="circle"
-            percent={pingProgress}
-            status={pingProgress < 100 ? "active" : "success"}
-            strokeColor={pingProgress < 100 ? "#1677ff" : "#52c41a"}
-            size={90}
-            format={(pct) =>
-              pingProgress < 100 ? (
-                <span style={{ fontSize: 13 }}>
-                  <LoadingOutlined style={{ color: "#1677ff" }} />
-                  <br />
-                  <span style={{ fontSize: 11, color: "#888" }}>{pct}%</span>
-                </span>
-              ) : (
-                <CheckCircleOutlined
-                  style={{ color: "#52c41a", fontSize: 28 }}
-                />
-              )
-            }
-          />
-          <div style={{ marginTop: 16 }}>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {pingProgress < 100 ? "Sending ICMP / TCP probes…" : "Done"}
-            </Typography.Text>
-          </div>
-        </div>
-      </Modal>
+      {/* Check Availability (merged Device42 + Zabbix + PaloAlto) */}
+      <CheckAvailabilityModal
+        open={!!checkAvailRecord}
+        onClose={() => setCheckAvailRecord(null)}
+        ipAddress={checkAvailRecord?.ip_address ?? ""}
+        recordId={checkAvailRecord?.id}
+        onUpdated={() => void fetchRecords(currentPage, filters)}
+      />
     </div>
   );
 };

@@ -80,12 +80,17 @@ class ZabbixService:
     @staticmethod
     async def lookup_ip(
         host: str, token: str, target_ip: str, verify_ssl: bool = False
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[str], Optional[str]]:
         """Real-time single-IP lookup for Check Availability. Returns
-        (reachable, device_name). reachable is True only when Zabbix both
-        knows the host AND its interface is currently reporting available —
-        this reflects Zabbix's own live monitoring state, not just presence
-        in inventory."""
+        (reachable, device_name, os_type). reachable is True only when Zabbix
+        both knows the host AND its interface is currently reporting
+        available — this reflects Zabbix's own live monitoring state, not
+        just presence in inventory. os_type is read from the host's
+        inventory (os_full/os/os_short) and mapped with Device42's own
+        heuristic — it's only populated if inventory mode is enabled for
+        that host in Zabbix, so a miss here is expected and not an error."""
+        from app.services.device42_service import _map_os
+
         async with httpx.AsyncClient(
             headers={"Authorization": f"Bearer {token}"},
             verify=verify_ssl,
@@ -99,18 +104,37 @@ class ZabbixService:
                 {"output": ["ip", "available", "hostid"], "filter": {"ip": target_ip}},
             )
             if not interfaces:
-                return False, None
+                return False, None, None
 
             iface = interfaces[0]
             available = iface.get("available") == "1"
 
             device_name = None
+            os_type = None
             hostid = iface.get("hostid")
             if hostid:
                 hosts = await ZabbixService._rpc(
-                    client, host, "host.get", {"output": ["host", "name"], "hostids": [hostid]}
+                    client,
+                    host,
+                    "host.get",
+                    {
+                        "output": ["host", "name"],
+                        "hostids": [hostid],
+                        "selectInventory": ["os", "os_full", "os_short"],
+                    },
                 )
                 if hosts:
                     device_name = hosts[0].get("name") or hosts[0].get("host")
+                    inventory = hosts[0].get("inventory")
+                    os_name = None
+                    if isinstance(inventory, dict):
+                        os_name = (
+                            inventory.get("os_full")
+                            or inventory.get("os")
+                            or inventory.get("os_short")
+                        )
+                    if os_name:
+                        mapped = _map_os(os_name)
+                        os_type = mapped if mapped != "Unknown" else None
 
-            return available, device_name
+            return available, device_name, os_type
