@@ -7,6 +7,7 @@ import {
   GlobalOutlined,
   ApartmentOutlined,
   ScanOutlined,
+  SafetyCertificateOutlined,
   TeamOutlined,
   AuditOutlined,
   DatabaseOutlined,
@@ -50,6 +51,7 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
     if (path.startsWith("/aggregates")) return "/aggregates";
     if (path.startsWith("/assets")) return "/assets";
     if (path.startsWith("/network-scan")) return "/network-scan";
+    if (path.startsWith("/paloalto-check")) return "/paloalto-check";
     if (path.startsWith("/integrations")) return "/integrations";
     if (path.startsWith("/users")) return "/users";
     if (path.startsWith("/pending-approvals")) return "/pending-approvals";
@@ -117,6 +119,11 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
           key: "/network-scan",
           icon: <ScanOutlined />,
           label: "Network Scan",
+        },
+        {
+          key: "/paloalto-check",
+          icon: <SafetyCertificateOutlined />,
+          label: "PaloAlto Check",
         },
         {
           key: "/integrations",

@@ -1,5 +1,15 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { Card, Typography, Row, Col, Button, Space, Tag, message } from "antd";
+import {
+  Card,
+  Typography,
+  Row,
+  Col,
+  Button,
+  Space,
+  Tag,
+  Tooltip,
+  message,
+} from "antd";
 import {
   BugOutlined,
   CloudServerOutlined,
@@ -8,13 +18,19 @@ import {
   DashboardOutlined,
 } from "@ant-design/icons";
 import { subnetsApi } from "../../api/subnets";
+import { useAuth } from "../../context/AuthContext";
 import type { SubnetDetail } from "../../types/subnet";
 import VSphereImportDrawer from "./VSphereImportDrawer";
 import Device42ImportDrawer from "./Device42ImportDrawer";
 import PaloAltoImportDrawer from "./PaloAltoImportDrawer";
 import ZabbixImportDrawer from "./ZabbixImportDrawer";
 
+const NO_ACCESS_TOOLTIP =
+  "Only SuperAdmin can run this integration's discover/import — everyone else can view this page but not use it.";
+
 const IntegrationsPage: React.FC = () => {
+  const { hasRole } = useAuth();
+  const canUseIntegrations = hasRole("SuperAdmin");
   const [subnets, setSubnets] = useState<SubnetDetail[]>([]);
   const [vsphereOpen, setVsphereOpen] = useState(false);
   const [device42Open, setDevice42Open] = useState(false);
@@ -68,13 +84,16 @@ const IntegrationsPage: React.FC = () => {
               Connect to vCenter and discover virtual machines. Select VMs to
               bulk-import their IP addresses as IPAM records.
             </Typography.Paragraph>
-            <Button
-              type="primary"
-              icon={<CloudServerOutlined />}
-              onClick={() => setVsphereOpen(true)}
-            >
-              Open vSphere Import
-            </Button>
+            <Tooltip title={canUseIntegrations ? undefined : NO_ACCESS_TOOLTIP}>
+              <Button
+                type="primary"
+                icon={<CloudServerOutlined />}
+                disabled={!canUseIntegrations}
+                onClick={() => setVsphereOpen(true)}
+              >
+                Open vSphere Import
+              </Button>
+            </Tooltip>
           </Card>
         </Col>
 
@@ -94,14 +113,17 @@ const IntegrationsPage: React.FC = () => {
               Connect to Device42 DCIM and fetch all tracked IP addresses and
               devices. Select entries to bulk-import as IPAM records.
             </Typography.Paragraph>
-            <Button
-              type="primary"
-              icon={<DatabaseOutlined />}
-              style={{ background: "#722ed1", borderColor: "#722ed1" }}
-              onClick={() => setDevice42Open(true)}
-            >
-              Open Device42 Import
-            </Button>
+            <Tooltip title={canUseIntegrations ? undefined : NO_ACCESS_TOOLTIP}>
+              <Button
+                type="primary"
+                icon={<DatabaseOutlined />}
+                style={{ background: "#722ed1", borderColor: "#722ed1" }}
+                disabled={!canUseIntegrations}
+                onClick={() => setDevice42Open(true)}
+              >
+                Open Device42 Import
+              </Button>
+            </Tooltip>
           </Card>
         </Col>
 
@@ -121,14 +143,17 @@ const IntegrationsPage: React.FC = () => {
               Connect to PaloAlto firewall and collect address objects,
               interface IPs, and ARP table entries to import as IPAM records.
             </Typography.Paragraph>
-            <Button
-              danger
-              type="primary"
-              icon={<FireOutlined />}
-              onClick={() => setPaloaltoOpen(true)}
-            >
-              Open PaloAlto Import
-            </Button>
+            <Tooltip title={canUseIntegrations ? undefined : NO_ACCESS_TOOLTIP}>
+              <Button
+                danger
+                type="primary"
+                icon={<FireOutlined />}
+                disabled={!canUseIntegrations}
+                onClick={() => setPaloaltoOpen(true)}
+              >
+                Open PaloAlto Import
+              </Button>
+            </Tooltip>
           </Card>
         </Col>
 
@@ -149,14 +174,17 @@ const IntegrationsPage: React.FC = () => {
               Also powers real-time availability checks — Zabbix actively polls
               these hosts, so results reflect live status.
             </Typography.Paragraph>
-            <Button
-              type="primary"
-              icon={<DashboardOutlined />}
-              style={{ background: "#d4380d", borderColor: "#d4380d" }}
-              onClick={() => setZabbixOpen(true)}
-            >
-              Open Zabbix Import
-            </Button>
+            <Tooltip title={canUseIntegrations ? undefined : NO_ACCESS_TOOLTIP}>
+              <Button
+                type="primary"
+                icon={<DashboardOutlined />}
+                style={{ background: "#d4380d", borderColor: "#d4380d" }}
+                disabled={!canUseIntegrations}
+                onClick={() => setZabbixOpen(true)}
+              >
+                Open Zabbix Import
+              </Button>
+            </Tooltip>
           </Card>
         </Col>
 

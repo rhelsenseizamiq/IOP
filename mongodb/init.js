@@ -71,6 +71,19 @@ db.token_blocklist.createIndex({ exp: 1 }, { expireAfterSeconds: 0 });
 
 print("✓ token_blocklist indexes created");
 
+// ── paloalto_check_logs collection (append-only, TTL 30 days) ─────────────────
+db.createCollection("paloalto_check_logs");
+db.paloalto_check_logs.createIndex({ checked_at: -1 });
+db.paloalto_check_logs.createIndex({ ip_address: 1, checked_at: -1 });
+db.paloalto_check_logs.createIndex({ checked_by: 1, checked_at: -1 });
+// TTL: auto-delete entries older than 30 days
+db.paloalto_check_logs.createIndex(
+  { checked_at: 1 },
+  { expireAfterSeconds: 2592000 },
+);
+
+print("✓ paloalto_check_logs indexes created (TTL: 30 days)");
+
 // ── vrfs collection ───────────────────────────────────────────────────────────
 db.createCollection("vrfs");
 db.vrfs.createIndex({ name: 1 }, { unique: true });

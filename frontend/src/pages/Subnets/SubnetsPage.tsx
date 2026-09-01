@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import {
   Table,
   Button,
@@ -17,7 +23,9 @@ import {
   Tag,
   Tooltip,
   Radio,
+  Dropdown,
 } from "antd";
+import type { MenuProps } from "antd";
 import {
   PlusOutlined,
   EditOutlined,
@@ -26,10 +34,13 @@ import {
   RightOutlined,
   WarningOutlined,
   SearchOutlined,
+  SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { subnetsApi } from "../../api/subnets";
 import { vrfsApi } from "../../api/vrfs";
+import { paloaltoScanSubnetStream } from "../../api/integrations";
+import type { PaloAltoScanSubnetResult } from "../../types/integrations";
 import { useAuth } from "../../context/AuthContext";
 import type {
   SubnetCreate,
@@ -135,6 +146,97 @@ const SubnetsPage: React.FC = () => {
       // Non-critical
     }
   }, []);
+
+  const [scanningSubnetId, setScanningSubnetId] = useState<string | null>(null);
+  const [scanModal, setScanModal] = useState<{
+    open: boolean;
+    cidr: string;
+    log: string[];
+    done: number;
+    total: number;
+    found: number;
+    summary: PaloAltoScanSubnetResult | null;
+    error: string | null;
+  }>({
+    open: false,
+    cidr: "",
+    log: [],
+    done: 0,
+    total: 0,
+    found: 0,
+    summary: null,
+    error: null,
+  });
+  const scanLogRef = useRef<HTMLDivElement>(null);
+  const scanAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (scanLogRef.current) {
+      scanLogRef.current.scrollTop = scanLogRef.current.scrollHeight;
+    }
+  }, [scanModal.log]);
+
+  const handleScanSubnet = useCallback(
+    async (record: SubnetTreeNode): Promise<void> => {
+      const prefix = Number(record.cidr.split("/")[1]);
+      const total = Number.isFinite(prefix)
+        ? Math.max(0, 2 ** (32 - prefix) - 2)
+        : 0;
+
+      scanAbortRef.current?.abort();
+      const controller = new AbortController();
+      scanAbortRef.current = controller;
+
+      setScanningSubnetId(record.id);
+      setScanModal({
+        open: true,
+        cidr: record.cidr,
+        log: [],
+        done: 0,
+        total,
+        found: 0,
+        summary: null,
+        error: null,
+      });
+
+      try {
+        await paloaltoScanSubnetStream(
+          record.id,
+          {
+            onLog: (ip, line) =>
+              setScanModal((prev) => ({
+                ...prev,
+                log: [...prev.log, `[${ip}] ${line}`],
+              })),
+            onResult: (result) =>
+              setScanModal((prev) => ({
+                ...prev,
+                done: prev.done + 1,
+                found: prev.found + (result.found ? 1 : 0),
+              })),
+            onSummary: (summary) =>
+              setScanModal((prev) => ({ ...prev, summary })),
+            onError: (message) =>
+              setScanModal((prev) => ({ ...prev, error: message })),
+          },
+          controller.signal,
+        );
+        void fetchTree();
+      } catch (err: unknown) {
+        if (controller.signal.aborted) return;
+        const error = err as Error;
+        setScanModal((prev) => ({
+          ...prev,
+          error: error.message || "PaloAlto scan failed",
+        }));
+      } finally {
+        if (scanAbortRef.current === controller) {
+          setScanningSubnetId(null);
+        }
+      }
+    },
+    [fetchTree],
+  );
 
   useEffect(() => {
     void fetchVrfs();
@@ -253,29 +355,55 @@ const SubnetsPage: React.FC = () => {
           record.alert_threshold !== undefined &&
           record.utilization_pct >= record.alert_threshold;
         const ipv = record.ip_version ?? 4;
+        const scanMenuItems: MenuProps["items"] = hasRole("Operator")
+          ? [
+              {
+                key: "scan-paloalto",
+                label:
+                  scanningSubnetId === record.id
+                    ? "Scanning…"
+                    : "Scan in PaloAlto",
+                icon: <SafetyCertificateOutlined />,
+                disabled: record.is_container || scanningSubnetId === record.id,
+                onClick: () => void handleScanSubnet(record),
+              },
+            ]
+          : [];
         return (
-          <span>
-            {overThreshold && (
-              <Tooltip
-                title={`Utilization ${record.utilization_pct}% ≥ threshold ${record.alert_threshold}%`}
+          <Dropdown menu={{ items: scanMenuItems }} trigger={["contextMenu"]}>
+            <span>
+              {overThreshold && (
+                <Tooltip
+                  title={`Utilization ${record.utilization_pct}% ≥ threshold ${record.alert_threshold}%`}
+                >
+                  <WarningOutlined
+                    style={{ color: "#ff4d4f", marginRight: 4 }}
+                  />
+                </Tooltip>
+              )}
+              <Tag
+                color={ipv === 6 ? "purple" : "blue"}
+                style={{ fontSize: 10, padding: "0 4px", marginRight: 4 }}
               >
-                <WarningOutlined style={{ color: "#ff4d4f", marginRight: 4 }} />
+                IPv{ipv}
+              </Tag>
+              <Tooltip
+                title={
+                  record.is_container
+                    ? undefined
+                    : "Right-click to scan in PaloAlto"
+                }
+              >
+                <Typography.Text
+                  code
+                  style={{ cursor: "context-menu", color: "#1677ff" }}
+                  onClick={() => setDrawerSubnet(record)}
+                >
+                  {v}
+                </Typography.Text>
               </Tooltip>
-            )}
-            <Tag
-              color={ipv === 6 ? "purple" : "blue"}
-              style={{ fontSize: 10, padding: "0 4px", marginRight: 4 }}
-            >
-              IPv{ipv}
-            </Tag>
-            <Typography.Text
-              code
-              style={{ cursor: "pointer", color: "#1677ff" }}
-              onClick={() => setDrawerSubnet(record)}
-            >
-              {v}
-            </Typography.Text>
-          </span>
+            </span>
+          </Dropdown>
         );
       },
     },
@@ -375,7 +503,7 @@ const SubnetsPage: React.FC = () => {
         );
       },
     },
-    ...(hasRole("Operator")
+    ...(hasRole("Administrator")
       ? ([
           {
             title: "Actions",
@@ -487,7 +615,7 @@ const SubnetsPage: React.FC = () => {
           >
             Refresh
           </Button>
-          {hasRole("Operator") && (
+          {hasRole("Administrator") && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               Create Subnet
             </Button>
@@ -523,6 +651,115 @@ const SubnetsPage: React.FC = () => {
         subnet={drawerSubnet}
         onClose={() => setDrawerSubnet(null)}
       />
+
+      {/* PaloAlto Scan Progress Modal */}
+      <Modal
+        title={
+          <Space>
+            <SafetyCertificateOutlined style={{ color: "#1677ff" }} />
+            Scanning {scanModal.cidr} in PaloAlto
+          </Space>
+        }
+        open={scanModal.open}
+        onCancel={() => setScanModal((prev) => ({ ...prev, open: false }))}
+        footer={
+          <Button
+            onClick={() => setScanModal((prev) => ({ ...prev, open: false }))}
+          >
+            Close
+          </Button>
+        }
+        width={640}
+      >
+        <Progress
+          percent={
+            scanModal.total > 0
+              ? Math.round((scanModal.done / scanModal.total) * 100)
+              : 0
+          }
+          status={
+            scanModal.error
+              ? "exception"
+              : scanModal.summary
+                ? "success"
+                : "active"
+          }
+          style={{ marginBottom: 8 }}
+        />
+        <Typography.Text
+          type="secondary"
+          style={{ display: "block", marginBottom: 12 }}
+        >
+          {scanModal.summary
+            ? `Done — ${scanModal.done} of ${scanModal.total || scanModal.done} scanned, ${scanModal.found} in use`
+            : `${scanModal.done} of ${scanModal.total || "?"} scanned, ${scanModal.found} in use so far…`}
+        </Typography.Text>
+
+        {scanModal.error && (
+          <Typography.Text
+            type="danger"
+            style={{ display: "block", marginBottom: 12 }}
+          >
+            {scanModal.error}
+          </Typography.Text>
+        )}
+
+        <div
+          ref={scanLogRef}
+          style={{
+            background: "#0b0f14",
+            color: "#8ce68c",
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+            fontSize: 12,
+            lineHeight: 1.6,
+            padding: "10px 14px",
+            borderRadius: 4,
+            maxHeight: 260,
+            overflowY: "auto",
+            whiteSpace: "pre-wrap",
+            marginBottom: scanModal.summary ? 12 : 0,
+          }}
+        >
+          {scanModal.log.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+
+        {scanModal.summary && (
+          <>
+            <Typography.Text strong>
+              {scanModal.summary.created} new · {scanModal.summary.updated}{" "}
+              updated · {scanModal.summary.skipped} unused · utilization now{" "}
+              {scanModal.summary.utilization_pct}%
+              {scanModal.summary.errors.length > 0 &&
+                ` · ${scanModal.summary.errors[0]}`}
+            </Typography.Text>
+
+            {scanModal.summary.top_rules.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <Typography.Text
+                  type="secondary"
+                  style={{ fontSize: 12, display: "block", marginBottom: 6 }}
+                >
+                  Top rules referencing addresses in this subnet:
+                </Typography.Text>
+                <Space size={[6, 6]} wrap>
+                  {scanModal.summary.top_rules.map((r) => (
+                    <Tag
+                      key={`${r.rule_type}-${r.rule_name}`}
+                      color={r.rule_type === "nat" ? "gold" : "blue"}
+                    >
+                      {r.rule_name} · {r.hit_count}{" "}
+                      {r.rule_type === "nat" ? "(NAT)" : "(security)"}
+                    </Tag>
+                  ))}
+                </Space>
+              </div>
+            )}
+          </>
+        )}
+      </Modal>
 
       {/* Create / Edit Modal */}
       <Modal

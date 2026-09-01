@@ -10,6 +10,7 @@ import DashboardPage from "./pages/Dashboard/DashboardPage";
 import IPRecordsPage from "./pages/IPRecords/IPRecordsPage";
 import SubnetsPage from "./pages/Subnets/SubnetsPage";
 import NetworkScanPage from "./pages/NetworkScan/NetworkScanPage";
+import PaloAltoCheckPage from "./pages/PaloAltoCheck/PaloAltoCheckPage";
 import UsersPage from "./pages/Users/UsersPage";
 import AuditLogPage from "./pages/AuditLog/AuditLogPage";
 // VRFsPage / AggregatesPage / AssetsPage — disabled, currently unused.
@@ -158,6 +159,17 @@ const App: React.FC = () => (
                 <ProtectedRoute requiredRole="Operator">
                   <AppLayout>
                     <NetworkScanPage />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/paloalto-check"
+              element={
+                <ProtectedRoute requiredRole="Operator">
+                  <AppLayout>
+                    <PaloAltoCheckPage />
                   </AppLayout>
                 </ProtectedRoute>
               }

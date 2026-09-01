@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     ZABBIX_HOST: str = ""
     ZABBIX_TOKEN: str = ""
 
+    # PaloAlto integration — real-time Check Availability lookup + PaloAlto
+    # Check tab. PALOALTO_HOSTS is comma-separated (multiple firewalls).
+    PALOALTO_HOSTS: str = ""
+    PALOALTO_USERNAME: str = ""
+    PALOALTO_PASSWORD: str = ""
+
     @field_validator("VAULT_MASTER_KEY")
     @classmethod
     def validate_vault_master_key(cls, v: str) -> str:
