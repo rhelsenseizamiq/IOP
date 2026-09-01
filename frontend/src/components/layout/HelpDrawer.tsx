@@ -38,8 +38,6 @@ import {
   DesktopOutlined,
   AuditOutlined,
   LoadingOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
   LinkOutlined,
   UnorderedListOutlined,
   InboxOutlined,
@@ -105,6 +103,49 @@ const ALL_SECTIONS: Section[] = [
           <li>
             <Text strong>Recent Activity timeline</Text> — the last 5 changes
             made by any user
+          </li>
+          <li>
+            <Text strong>Data Sync Health</Text> — freshness of the nightly
+            Device42, Zabbix, and PaloAlto full-inventory syncs (last run time,
+            duration, counters); flags a source as "Overdue" past 27 hours since
+            its last run
+          </li>
+          <li>
+            <SafetyCertificateOutlined /> <Text strong>PaloAlto Activity</Text>{" "}
+            <Badge
+              count="New"
+              style={{
+                backgroundColor: "#52c41a",
+                fontSize: 10,
+                height: 16,
+                lineHeight: "16px",
+                padding: "0 5px",
+              }}
+            />{" "}
+            — real-time Check Availability usage, distinct from the nightly sync
+            above: checks in the last 24h/7d, % found in-use over 7 days, and
+            the 5 most recent lookups (IP, hostname, who, when)
+          </li>
+          <li>
+            <WarningOutlined style={{ color: "#e8a85f" }} />{" "}
+            <Text strong>Stale "In Use" Records</Text>{" "}
+            <Badge
+              count="New"
+              style={{
+                backgroundColor: "#52c41a",
+                fontSize: 10,
+                height: 16,
+                lineHeight: "16px",
+                padding: "0 5px",
+              }}
+            />{" "}
+            — records marked <Tag color="blue">In Use</Tag> that no source
+            (Device42, Zabbix, PaloAlto, or a manual check) has re-confirmed in
+            over 90 days. Purely informational — nothing is auto-changed. Click{" "}
+            <Text strong>View all</Text> for the full list, or{" "}
+            <Text strong>Bulk Scan All</Text> to re-check every one of them
+            through Device42 + Zabbix + PaloAlto in one go{" "}
+            <RoleBadge role="Administrator" />
           </li>
         </ul>
         <Alert
@@ -180,18 +221,17 @@ const ALL_SECTIONS: Section[] = [
               lineHeight: "16px",
               padding: "0 5px",
             }}
-          />
+          />{" "}
+          <RoleBadge role="Administrator" />
         </Paragraph>
         <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-          Right-clicking on any IP address opens a submenu — pick which source
-          performs the check:
+          One click now scans <Text strong>all three sources in sequence</Text>{" "}
+          — Device42, then Zabbix, then PaloAlto — instead of picking one at a
+          time. A live progress modal shows each source as it's checked
+          ("checking… → found / not found") and applies the combined result
+          immediately:
         </Paragraph>
         <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
-          <li>
-            <Text strong>ens192 / ens224</Text> — live ICMP/TCP probe, out
-            through the server's real physical NICs (not just the API's own
-            network path)
-          </li>
           <li>
             <Text strong>Device42</Text> — real-time inventory lookup, not a
             network probe; shows the assigned device, or that Device42 has no
@@ -203,34 +243,49 @@ const ALL_SECTIONS: Section[] = [
             up/down status
           </li>
           <li>
-            <Text type="secondary">
-              PaloAlto — shown, not yet wired up for this check
-            </Text>
+            <Text strong>PaloAlto</Text> — checks every configured firewall for
+            a named address object, live ARP entry, NAT rule, or security policy
+            referencing the address
           </li>
         </ul>
-        <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-          A <LoadingOutlined /> progress state shows while checking, then a
-          notification tells you the result:
+        <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+          Any single source finding a positive match can upgrade the record to{" "}
+          <Tag color="blue">In Use</Tag> — this is{" "}
+          <Text strong>asymmetric on purpose</Text>: no source is guaranteed
+          complete, so a miss from all three never auto-downgrades a record to
+          Free, and a <Tag color="orange">Reserved</Tag> record is never
+          auto-released. When PaloAlto finds it, hostname is enriched from the
+          match; when Device42 or Zabbix return an OS name,{" "}
+          <Text strong>OS Type</Text> is filled in too (Zabbix only if that host
+          has inventory data populated) — same upgrade-only rule applies to
+          both.
         </Paragraph>
-        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
-          <li>
-            <CheckCircleOutlined style={{ color: "#52c41a" }} />{" "}
-            <Text strong>Reachable / found</Text> — status may be auto-updated
-            to <Tag color="blue">In Use</Tag>
-          </li>
-          <li>
-            <CloseCircleOutlined style={{ color: "#faad14" }} />{" "}
-            <Text strong>No response (ens192/ens224 only)</Text> — status may be
-            auto-updated to <Tag color="green">Free</Tag>
-          </li>
-          <li>
-            <CloseCircleOutlined style={{ color: "#8c8c8c" }} />{" "}
-            <Text strong>No record (Device42/Zabbix)</Text> — status is{" "}
-            <Text strong>never</Text> auto-changed to Free from this alone.
-            Neither source is guaranteed complete, so a miss just means "this
-            source doesn't know about it" — not proof the address is unused.
-          </li>
-        </ul>
+
+        <Paragraph style={{ marginBottom: 4 }}>
+          <SearchOutlined /> <Text strong>Show Duplicates</Text>{" "}
+          <Badge
+            count="New"
+            style={{
+              backgroundColor: "#52c41a",
+              fontSize: 10,
+              height: 16,
+              lineHeight: "16px",
+              padding: "0 5px",
+            }}
+          />{" "}
+          <RoleBadge role="Operator" />
+        </Paragraph>
+        <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+          Toolbar button next to Export/Import. Finds records sharing the exact
+          same <Text strong>hostname</Text> or <Text strong>IP address</Text> —
+          hostname duplicates are common (e.g. a decommissioned host's name left
+          on a stale record after its address was reassigned); IP duplicates
+          should never exist (there's a database uniqueness constraint) but are
+          checked anyway as a safety net. Each tab has its own{" "}
+          <Text strong>Bulk Scan All</Text> button{" "}
+          <RoleBadge role="Administrator" /> to re-check every affected record
+          through Device42 + Zabbix + PaloAlto in one pass.
+        </Paragraph>
 
         <Paragraph type="secondary" style={{ fontSize: 12 }}>
           <LinkOutlined /> Navigating here from a subnet's{" "}
@@ -318,9 +373,15 @@ const ALL_SECTIONS: Section[] = [
         <Alert
           type="warning"
           showIcon
-          style={{ fontSize: 12 }}
+          style={{ fontSize: 12, marginBottom: 12 }}
           message="Bulk operations write one audit log entry per modified record so changes remain fully traceable."
         />
+        <Paragraph type="secondary" style={{ fontSize: 12 }}>
+          Not to be confused with <Text strong>Bulk Scan</Text> — a different
+          feature, triggered from the Dashboard's Stale In-Use panel or the Show
+          Duplicates modal, that re-checks a set of records against
+          Device42/Zabbix/PaloAlto rather than editing fields directly.
+        </Paragraph>
       </>
     ),
   },
@@ -408,6 +469,31 @@ const ALL_SECTIONS: Section[] = [
             jump directly to IP Records with that subnet pre-filtered
           </li>
         </ul>
+
+        <Paragraph style={{ marginBottom: 4 }}>
+          <SafetyCertificateOutlined /> <Text strong>Scan in PaloAlto</Text>{" "}
+          (right-click any subnet){" "}
+          <Badge
+            count="New"
+            style={{
+              backgroundColor: "#52c41a",
+              fontSize: 10,
+              height: 16,
+              lineHeight: "16px",
+              padding: "0 5px",
+            }}
+          />{" "}
+          <RoleBadge role="Operator" />
+        </Paragraph>
+        <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+          Bulk-checks every host address in the subnet against every configured
+          PaloAlto firewall, with a live progress bar and trace log, then
+          auto-saves found addresses into IP Records and refreshes the subnet's
+          utilization stats. The summary also lists the{" "}
+          <Text strong>top security/NAT rules</Text> that actually reference
+          addresses in that subnet, with hit counts — useful before resizing or
+          decommissioning a subnet to see what still points at it.
+        </Paragraph>
 
         <Paragraph style={{ marginBottom: 4 }}>
           <Text strong>Alert Threshold</Text>
@@ -950,13 +1036,17 @@ const ALL_SECTIONS: Section[] = [
           message="Nightly automated sync"
           description={
             <>
-              Device42 (02:00 UTC) and Zabbix (02:35 UTC) both sync
-              automatically every night with no action needed. Device42 sets the
-              baseline status; Zabbix can only ever <Text code>upgrade</Text> a
-              record to "In Use" when it has live positive evidence — it never
-              marks anything "Free", and it skips hosts that are disabled in
-              Zabbix with no data reported in the last 6 months (likely
-              decommissioned), so the two jobs never conflict.
+              Device42 (02:00 UTC), Zabbix (02:35 UTC), and PaloAlto (02:50 UTC)
+              all sync automatically every night with no action needed. Device42
+              sets the baseline status; Zabbix and PaloAlto can only ever{" "}
+              <Text code>upgrade</Text> a record to "In Use" when they have live
+              positive evidence — neither marks anything "Free", and neither
+              touches a <Tag color="orange">Reserved</Tag> record, so none of
+              the three jobs can conflict even if a run window ever grows to
+              overlap. Zabbix skips hosts disabled with no data in the last 6
+              months (likely decommissioned); PaloAlto only imports named
+              single-host (/32) address objects, not the live ARP table or wider
+              subnet objects (too noisy for a curated inventory).
             </>
           }
         />
@@ -988,14 +1078,79 @@ const ALL_SECTIONS: Section[] = [
             Useful for building an IP inventory from an existing network without
             active scanning
           </li>
+          <li>
+            For real-time single-IP/subnet lookups instead of bulk import, see
+            the dedicated <Text strong>PaloAlto Check</Text> page below.
+          </li>
         </ul>
 
         <Alert
           type="warning"
           showIcon
           style={{ fontSize: 12 }}
-          message="All integrations require Operator role or higher."
+          message="Discover / Import on this page requires the SuperAdmin role. Everyone else can see the cards but the action buttons are disabled."
         />
+      </>
+    ),
+  },
+
+  // ─── PaloAlto Check ────────────────────────────────────────────────────────
+  {
+    key: "paloalto-check",
+    icon: <SafetyCertificateOutlined />,
+    title: "PaloAlto Check",
+    badge: "New",
+    content: (
+      <>
+        <Paragraph>
+          A dedicated page for real-time, on-demand PaloAlto lookups — separate
+          from the bulk Discover/Import flow on the Integrations page, and from
+          the nightly sync. Every check here queries the live firewalls
+          directly. <RoleBadge role="Operator" />
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12, fontSize: 12 }}>
+          <li>
+            <Text strong>Check IP</Text> — searches every configured firewall
+            for a named address object, live ARP entry, NAT rule, or security
+            policy referencing the address. A match on a rule whose source or
+            destination is a <Text strong>/32 or /128 network only</Text> counts
+            as evidence of use — a broad-subnet match (e.g. a rule covering a
+            whole <Text code>/16</Text>) is shown in the trace log but doesn't
+            count, since nearly every address in that range would trivially
+            match.
+          </li>
+          <li>
+            <Text strong>Check Subnet</Text> — same check across every host
+            address in a CIDR at once
+          </li>
+          <li>
+            <Text strong>Real-time trace log</Text> — streams as the check
+            actually runs (Server-Sent Events), so you see exactly which
+            firewall is being queried and what it returned, live in the
+            terminal-style log panel
+          </li>
+          <li>
+            <Text strong>Reverse DNS hostname</Text> — resolved automatically
+            alongside the PaloAlto match
+          </li>
+          <li>
+            <Text strong>Save to IP Records</Text> — turn a found address (or a
+            whole batch) into a real IP record with one click, or let the
+            nightly sync pick it up automatically
+          </li>
+          <li>
+            <Text strong>30-day check history</Text> — every check made from
+            this page, Check Availability, or a bulk scan is logged
+            (auto-expires after 30 days); filter by IP to see everything
+            recorded for a specific address
+          </li>
+          <li>
+            <Text strong>30-day PAN-OS traffic logs</Text> — pulls PaloAlto's
+            own historical traffic/session logs for the address directly from
+            the firewall (not IPAM's own check history) — genuine evidence of
+            real recent network activity, not just "IPAM checked it once"
+          </li>
+        </ul>
       </>
     ),
   },
@@ -1116,9 +1271,15 @@ const ALL_SECTIONS: Section[] = [
     key: "roles",
     icon: <TeamOutlined />,
     title: "User Roles & Permissions",
+    badge: "Updated",
     content: (
       <>
-        <Paragraph>Access is controlled by three hierarchical roles:</Paragraph>
+        <Paragraph>
+          Access is controlled by four hierarchical roles. Unlike the old model,{" "}
+          <Text strong>Operator is deliberately read-only</Text> on core IPAM
+          data — it's a "look and actively scan" role, not a "look and edit"
+          role:
+        </Paragraph>
         <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
           <li>
             <Space size={4}>
@@ -1127,22 +1288,25 @@ const ALL_SECTIONS: Section[] = [
             </Space>
             <br />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              Read-only access — browse subnets, IP records, VRFs, aggregates,
-              assets, and view history.
+              Read-only — Dashboard, IP Records, Subnets, Unused IP Addresses
+              (and the other core IPAM pages), full change history.
             </Text>
           </li>
           <li style={{ marginTop: 8 }}>
             <Space size={4}>
-              <EditOutlined style={{ color: "#1677ff" }} />
+              <ScanOutlined style={{ color: "#1677ff" }} />
               <Text strong>Operator</Text>
             </Space>
             <br />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              All Viewer permissions plus: create/edit subnets, IP records,
-              VRFs, aggregates, IP ranges, assets; reserve/release IPs; bulk
-              operations; run network scans; check IP availability; run DNS
-              conflict detection; use integrations (vSphere, Device42, Palo
-              Alto).
+              All Viewer access, still read-only on IP Records/Subnets (no
+              create, edit, reserve/release, or Check Availability) —{" "}
+              <Text strong>plus</Text> the ability to actually run and use{" "}
+              <Text strong>PaloAlto Check</Text> (single/subnet scans) and{" "}
+              <Text strong>Network Scan</Text>, export IP Records to CSV, and
+              view Show Duplicates. Can open the{" "}
+              <Text strong>Integrations</Text> page and see everything on it,
+              but the Discover/Import action buttons are disabled.
             </Text>
           </li>
           <li style={{ marginTop: 8 }}>
@@ -1152,8 +1316,24 @@ const ALL_SECTIONS: Section[] = [
             </Space>
             <br />
             <Text type="secondary" style={{ fontSize: 12 }}>
-              All Operator permissions plus: delete records, manage users,
-              approve registrations, view all audit log events.
+              Full read/write access everywhere — create/edit/delete subnets and
+              IP records, reserve/release, bulk operations, the merged Check
+              Availability scan and Bulk Scan, Scan in PaloAlto, user
+              management, pending approvals, and the full audit log. The one
+              exception: like Operator, can see the Integrations page but{" "}
+              <Text strong>cannot</Text> use its Discover/Import actions.
+            </Text>
+          </li>
+          <li style={{ marginTop: 8 }}>
+            <Space size={4}>
+              <SafetyCertificateOutlined style={{ color: "#faad14" }} />
+              <Text strong>SuperAdmin</Text>
+            </Space>
+            <br />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Bypasses every role check, with no per-page exceptions — the only
+              role that can actually run Integrations Discover/Import (vSphere,
+              Device42, Zabbix, PaloAlto) and delete a Vault cabinet.
             </Text>
           </li>
         </ul>
@@ -1161,7 +1341,7 @@ const ALL_SECTIONS: Section[] = [
           type="info"
           showIcon
           style={{ fontSize: 12 }}
-          message="Roles are hierarchical — Administrator includes Operator, Operator includes Viewer."
+          message='Roles are hierarchical for what they include, but "higher" is not strictly "more of the same" — Operator trades edit rights on IPAM data for hands-on scanning tools, and even Administrator is deliberately locked out of Integrations actions.'
         />
       </>
     ),

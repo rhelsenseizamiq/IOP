@@ -1,6 +1,6 @@
 # IOP — Infrastructure Operations Platform
 
-A self-hosted IP Address Management portal with NetBox-style prefix hierarchy, dual-stack IPv4/IPv6, Device42 & Zabbix & PaloAlto integrations (with nightly automated sync), a human-friendly Unused IP Addresses view, real-time per-source IP availability checks, infrastructure network scanning, Password Vault with folder organisation and secure sharing, and optional LDAP/AD authentication.
+A self-hosted IP Address Management portal with NetBox-style prefix hierarchy, dual-stack IPv4/IPv6, Device42 & Zabbix & PaloAlto integrations (with nightly automated sync), a real-time PaloAlto Check page (trace log, 30-day check + traffic history), merged multi-source Check Availability with OS/hostname auto-enrichment, duplicate detection with bulk re-verification, a human-friendly Unused IP Addresses view, infrastructure network scanning, granular role-based access control, Password Vault with folder organisation and secure sharing, and optional LDAP/AD authentication.
 
 ---
 
@@ -65,12 +65,18 @@ docker compose build frontend api && docker compose up -d frontend api
 
 ## User Roles
 
+Roles are hierarchical for what they *include*, but not strictly "more of
+the same" — **Operator is deliberately read-only** on core IPAM data (a
+"look and actively scan" role, not a "look and edit" role), and even
+**Administrator** is locked out of the Integrations page's actual
+Discover/Import actions.
+
 | Role | Permissions |
 |------|-------------|
-| **Viewer** | Read-only: all IPAM pages, change history, Vault (own cabinets), password generator |
-| **Operator** | Viewer + create/edit/reserve/release, bulk ops, network scan, DNS scan, integrations import, folder management, share links |
-| **Administrator** | Operator + delete, user management, audit log, pending approvals, cabinet CRUD |
-| **SuperAdmin** | Bypasses all role checks — full access to every endpoint |
+| **Viewer** | Read-only: Dashboard, IP Records, Subnets, Unused IP Addresses, change history, Vault (own cabinets), password generator |
+| **Operator** | All Viewer access, still **read-only** on IP Records/Subnets (no create/edit/reserve/release/Check Availability) — plus can actually *run* PaloAlto Check (single/subnet scans) and Network Scan, export IP Records to CSV, view Show Duplicates. Can open Integrations but its Discover/Import buttons are disabled. Folder management and share links (Vault). |
+| **Administrator** | Full read/write everywhere — create/edit/delete, reserve/release, bulk operations, merged Check Availability + Bulk Scan, Scan in PaloAlto, user management, pending approvals, full audit log, cabinet CRUD. **Exception:** same as Operator, cannot use Integrations' Discover/Import actions. |
+| **SuperAdmin** | Bypasses all role checks, no exceptions — the only role that can run Integrations Discover/Import (vSphere, Device42, Zabbix, PaloAlto) and delete a Vault cabinet |
 
 ---
 
@@ -90,6 +96,9 @@ docker compose build frontend api && docker compose up -d frontend api
 
 ### Dashboard & Operations
 - recharts dashboard: IP status donut, environment bar, OS bar, top subnets, recent activity
+- Data Sync Health — freshness of the nightly Device42/Zabbix/PaloAlto syncs (last run, duration, counters); flags a source "Overdue" past 27h since its last run
+- **PaloAlto Activity** — real-time Check Availability usage (distinct from the nightly sync): checks in the last 24h/7d, % found in-use over 7 days, 5 most recent lookups
+- **Stale "In Use" Records** — records marked `In Use` not re-confirmed by any source (Device42/Zabbix/PaloAlto/manual check) in 90+ days; purely informational, view-all modal, plus **Bulk Scan All** to re-check the whole list at once
 - Subnet utilisation alert threshold — warning badge on row + dashboard banner
 - Bulk reserve / release / update-fields for multiple IP records
 - Per-record change history with before→after field diffs
@@ -102,26 +111,43 @@ docker compose build frontend api && docker compose up -d frontend api
 ### Integrations
 - **Device42** — REST API IP/device discovery with OS mapping. Credentials entered per-session in the Integrations UI.
 - **Zabbix** — JSON-RPC API (Bearer token auth), host + interface discovery. Credentials are server-configured only (`.env.api`), never entered in the browser — the Integrations card just discovers and lets you import directly.
-- **PaloAlto** — PAN-OS XML API: address objects, interface IPs, ARP table
+- **PaloAlto** — PAN-OS XML API: address objects, interface IPs, ARP table. Discover/Import here is bulk, one-time; see **PaloAlto Check** below for real-time single-IP/subnet lookups.
 - **vSphere** — vCenter VM discovery via pyVmomi
 - **DNS conflict detection** — FORWARD_MISMATCH, PTR_MISMATCH, NO_FORWARD, DUPLICATE_HOSTNAME
 
-#### Nightly automated sync (Device42 + Zabbix)
-Both run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
+> **RBAC note:** Discover/Import on this page is **SuperAdmin-only** — Operator and Administrator can open the page and see the cards, but the action buttons are disabled. This is intentional (see User Roles above).
+
+### PaloAlto Check (real-time, per-IP/subnet)
+A dedicated page (`/paloalto-check`, Operator+) for on-demand PaloAlto lookups — separate from the bulk Discover/Import above and from the nightly sync, every check here queries the live firewalls directly:
+- **Check IP / Check Subnet** — searches every configured firewall for a named address object, live ARP entry, NAT rule, or security policy referencing the address(es). A match only counts as evidence of use if the matching rule's network is a `/32` or `/128` — a broad-subnet match (e.g. a rule covering a whole `/16`) is shown in the trace log but excluded from the found/not-found verdict, since nearly every address in that range would trivially match it.
+- **Real-time trace log** — streams over Server-Sent Events as the check actually runs, showing exactly which firewall is being queried and what came back, live.
+- **Reverse DNS hostname** enrichment alongside the match.
+- **Save to IP Records** — turn a found address (or a batch) into a real IP record with one click.
+- **30-day check history** (`paloalto_check_logs`, TTL-indexed) — every check from this page, Check Availability, or a Bulk Scan is logged; filterable by IP.
+- **30-day PAN-OS traffic logs** — pulls PaloAlto's own historical traffic/session log entries for an address directly from the firewall (async job submission + polling) — genuine evidence of real recent network activity, distinct from IPAM's own check-history above.
+- **Subnets → right-click → Scan in PaloAlto** — bulk-checks every host address in a subnet with a live progress bar + trace log, auto-saves found addresses, refreshes utilization, and surfaces the **top security/NAT rules** actually referencing addresses in that subnet (reused from the scan's own match data — no extra PAN-OS calls).
+
+#### Nightly automated sync (Device42 + Zabbix + PaloAlto)
+All three run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
 
 | Time | Job | Typical duration |
 |---|---|---|
 | 2:00 AM | Device42 full sync | ~25 min (~72k IPs) |
 | 2:35 AM | Zabbix full sync | ~2-5 sec (~475 hosts) |
+| 2:50 AM | PaloAlto full sync | ~25-30 sec (across configured firewalls) |
 
-Device42 sets the baseline status from its own inventory `available` flag; Zabbix runs second and **only ever writes `"In Use"`** (upgrades on live positive evidence, or skips) — it can never undo a correct Device42-derived `Free`, so the two jobs can't produce conflicting data even if a run window ever grows to overlap. Zabbix hosts that are disabled *and* have no monitoring data in the last 6 months are treated as likely decommissioned and skipped entirely — never used as evidence to mark an address "In Use". Both wrapper scripts (`scripts/run_device42_sync.sh`, `scripts/run_zabbix_sync.sh`) use a lock file that auto-clears after 2 hours if a prior run was killed by a crash/reboot, so a stuck lock can't silently block every future run. See `scripts/README.md` for the full operational writeup.
+Device42 sets the baseline status from its own inventory `available` flag; Zabbix and PaloAlto run after and **only ever write `"In Use"`** (upgrade on live positive evidence, or skip) — neither can undo a correct Device42-derived `Free`, and neither touches a `Reserved` record, so none of the three jobs can produce conflicting data even if a run window ever grows to overlap. Zabbix hosts that are disabled *and* have no monitoring data in the last 6 months are treated as likely decommissioned and skipped entirely. PaloAlto's nightly sync only imports named single-host (`/32`) address objects — the closest equivalent to Device42's curated inventory — deliberately ignoring the live ARP table and wider-subnet objects (too noisy for an automated job; still available via the manual Discover/Import flow). All wrapper scripts (`scripts/run_device42_sync.sh`, `scripts/run_zabbix_sync.sh`, `scripts/run_paloalto_sync.sh`) use a lock file that auto-clears after 2 hours if a prior run was killed by a crash/reboot, so a stuck lock can't silently block every future run. See `scripts/README.md` for the full operational writeup.
 
-#### Check Availability (per-record, real-time)
-Right-click any IP (in IP Records or Unused IP Addresses) → Check Availability, choose the source:
-- **ens192 / ens224** — pings out through the host's real physical NICs via a small always-on helper service (`scripts/scan_helper.py`, systemd), not the API container's own bridge network
+#### Check Availability — merged, single click (per-record, real-time)
+Right-click any IP (in IP Records) → **Check Availability** scans **Device42, then Zabbix, then PaloAlto in sequence** — one action instead of picking a source. A live progress modal shows each source as it's checked, then applies the combined result immediately:
 - **Device42** — real-time inventory lookup (not a network probe); reports the assigned device, or that it's free. A miss never auto-changes status (Device42's inventory isn't guaranteed complete)
 - **Zabbix** — real-time live monitoring lookup; Zabbix actively polls its hosts, so a positive result auto-marks "In Use", but a miss/down result never auto-marks "Free"
-- **PaloAlto** — shown, currently disabled (not yet integrated for this check)
+- **PaloAlto** — checks every configured firewall for a named address object, live ARP entry, NAT rule, or security policy referencing the address
+
+Any single source finding a match can upgrade the record to `In Use` — this is **asymmetric on purpose**: no source is guaranteed complete, so a miss from all three never auto-downgrades a record to `Free`, and a `Reserved` record is never auto-released. When PaloAlto finds it, **hostname** is enriched from the match; when Device42 or Zabbix return an OS name, **OS Type** is filled in too (same upgrade-only rule). `ens192`/`ens224` real-NIC pings (via `scripts/scan_helper.py`, systemd) remain available as legacy per-source options on the underlying `/ping` endpoint.
+
+#### Show Duplicates & Bulk Scan
+IP Records toolbar → **Show Duplicates** finds records sharing the exact same **hostname** or **IP address** (IP duplicates should be structurally impossible — there's a DB uniqueness constraint — but are checked anyway as a safety net; hostname duplicates are common and genuinely useful, e.g. a stale record left behind when a host was decommissioned and its address reassigned). Each tab has a **Bulk Scan All** button (Administrator) that re-runs the merged Device42+Zabbix+PaloAlto check sequentially across every affected record. The same **Bulk Scan** action is also available from the Dashboard's Stale "In Use" Records panel (see below).
 
 ### Password Vault
 - Cabinet-based secret storage — each cabinet has a name, description, and explicit member list
@@ -230,9 +256,13 @@ All endpoints prefixed `/api/v1`. Auth via `Authorization: Bearer <token>`.
 | IP Ranges | `/ip-ranges` | Full CRUD |
 | Network Scanner | `/scanner/scan` | POST, Operator+ |
 | Infrastructure Scan | `/scan/discover` | POST, Operator+ |
-| vSphere | `/integrations/vsphere/discover` + `/import` | Operator+ |
-| Device42 | `/integrations/device42/discover` + `/import` | Operator+ |
-| PaloAlto | `/integrations/paloalto/discover` + `/import` | Operator+ |
+| vSphere | `/integrations/vsphere/discover` + `/import` | SuperAdmin |
+| Device42 | `/integrations/device42/discover` + `/import` | SuperAdmin |
+| PaloAlto (bulk) | `/integrations/paloalto/discover` + `/import` | SuperAdmin |
+| PaloAlto Check | `/integrations/paloalto/check-ip` \| `check-subnet` \| `check-stream` (SSE) \| `check-logs` \| `save-to-records` \| `save-bulk` \| `scan-subnet` \| `scan-subnet-stream` (SSE) \| `traffic-logs` | Operator+ |
+| IP Records — merged Check Availability | `POST /ip-records/{id}/check-availability-stream` (SSE) — existing record; `POST /ip-records/check-availability-stream` — no record yet (Unused IPs) | Admin |
+| IP Records — Bulk Scan | `POST /ip-records/bulk/check-availability-stream` (SSE) — body `{ids: string[]}`, max 200 per request | Admin |
+| IP Records — duplicates | `GET /ip-records/duplicates` — grouped by exact `ip_address` / `hostname` match | Operator+ |
 | Stats | `/stats` | GET, Viewer+ |
 | Audit Log | `/audit-logs` | GET, Admin |
 | Assets | `/assets` | Full CRUD, Viewer+ |
@@ -670,6 +700,49 @@ All security fixes verified. All new features (folders, share links, password ge
 ---
 
 ## Changelog
+
+### v9.0.0 — PaloAlto Check, Merged Check Availability, Granular RBAC, Dashboard Intelligence
+
+**PaloAlto Check (new page, real-time)**
+
+- Dedicated `/paloalto-check` page (Operator+): check a single IP or a whole subnet against every configured firewall — named address objects, live ARP entries, NAT rules, security policies.
+- **Host-specific matching fix** — a rule match only counts as evidence of use if the matching network is `/32`/`/128`; a broad-subnet match (e.g. a rule covering a `/16`) is logged but excluded from the verdict, fixing a real false-positive (`10.128.51.71` was shown "in use" purely from being inside a broadly-scoped rule).
+- **Real-time trace log** — true Server-Sent Events streaming (not buffered) through production nginx, using `X-Accel-Buffering: no` rather than touching the shared nginx config.
+- **30-day check-log history** (`paloalto_check_logs`, TTL-indexed) — every check from this page, Check Availability, or Bulk Scan is recorded; reverse-DNS hostname included.
+- **30-day PAN-OS traffic logs** — pulls PaloAlto's own historical traffic/session log entries for an address directly from the firewall (async job submission + polling) — genuinely distinct from IPAM's own check-history.
+- **Subnets → Scan in PaloAlto** — bulk per-subnet scan with a live progress bar, auto-saves found addresses, refreshes utilization, and now also surfaces the **top security/NAT rules** actually referencing that subnet's addresses (reused from the scan's own match data, no extra PAN-OS calls).
+- **PaloAlto nightly sync** (2:50 AM) — full address-object → IPAM sync mirroring the Device42/Zabbix pattern; imports only named `/32` address objects, upgrade-only ("In Use" never "Free"), never touches `Reserved`.
+
+**Merged Check Availability**
+
+- Replaced the old per-source dropdown (Device42 / Zabbix / PaloAlto picked one at a time) with a single action that scans **all three in sequence**, live progress modal per source, combined result applied immediately.
+- **OS Type auto-enrichment** — Device42 does a targeted per-device lookup for its OS field; Zabbix reads host inventory (`os`/`os_full`/`os_short`) when populated; same upgrade-only rule as hostname/status (never overwrites with a guess, only fills in what wasn't known).
+- Available from IP Records (existing record) and Unused IP Addresses (no record yet, informational only).
+
+**Granular RBAC**
+
+- Reworked from a simple Viewer < Operator < Administrator hierarchy to a matrix where **Operator is read-only** on IPAM data but can actively run PaloAlto Check and Network Scan; **Administrator** has full read/write except Integrations Discover/Import (SuperAdmin-only); **SuperAdmin** bypasses everything. See User Roles above — verified against 4 real accounts over live HTTP (minting a fake in-process user bypasses `Depends()` entirely, so this was tested through actual requests).
+- Fixed a `/{id}/check-availability-stream` vs `/bulk/check-availability-stream` route-ordering bug — both are 2-segment paths, and FastAPI/Starlette validates path-parameter patterns in registration order before falling through, so `/bulk/...` must be registered first or it 422s as `id="bulk"`.
+
+**Dashboard**
+
+- **PaloAlto Activity** card — checks in the last 24h/7d, % found in-use over 7 days, 5 most recent lookups.
+- **Stale "In Use" Records** card — records not re-confirmed by any source in 90+ days (relies on every confirming write bumping `updated_at` even when no field value changes, making its age a reliable "last positive confirmation" signal); view-all modal, **Bulk Scan All** to re-check the whole list.
+
+**Duplicate detection + Bulk Scan**
+
+- IP Records → **Show Duplicates** — groups by exact `hostname` or `ip_address` match; IP duplicates are checked as a safety net (a DB uniqueness constraint should prevent them structurally) while hostname duplicates are the genuinely common, useful case.
+- **Bulk Scan** — re-runs the merged Device42+Zabbix+PaloAlto check sequentially across a list of record IDs (max 200/request); available from both Show Duplicates and the Stale In-Use panel; shares the exact same per-record scan logic as the single-record action via one extracted generator function, so behavior is identical whether scanning one record or two hundred.
+
+**Bug fixes**
+
+- Missing top-level `HTTPException` import in `ip_records.py` was causing `NameError` (not a proper HTTP response) on 11 error paths.
+- CIDR-expansion DoS in `/paloalto/check-subnet` — request size was validated *after* materializing the full host list, so `0.0.0.0/0` would attempt to enumerate billions of addresses before ever checking the cap.
+- `.//ifnet` xpath bug in PaloAlto interface discovery — PAN-OS wraps entries as `<ifnet><entry>`, so the original xpath matched the wrapper itself and always found 0 interfaces.
+- Naive-vs-aware `datetime` subtraction crash in the new Stale In-Use stats query (Motor/PyMongo returns naive UTC datetimes; compare in the naive domain, not against an aware `now`).
+- Device42/Zabbix sync and Check Availability could clobber a `Reserved` record's status — now excluded everywhere the same way.
+
+---
 
 ### v8.0.0 — Zabbix Integration, Automated Sync, Unused IPs Redesign, Security Hardening
 
