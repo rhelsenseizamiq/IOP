@@ -30,6 +30,7 @@ import {
   QuestionCircleFilled,
   WifiOutlined,
   ScanOutlined,
+  DiffOutlined,
 } from "@ant-design/icons";
 import {
   PieChart,
@@ -56,6 +57,7 @@ import type {
   StaleInUseSample,
 } from "../../types/stats";
 import BulkCheckAvailabilityModal from "../../components/common/BulkCheckAvailabilityModal";
+import DuplicatesModal from "../../components/common/DuplicatesModal";
 
 dayjs.extend(relativeTime);
 
@@ -162,6 +164,7 @@ const DashboardPage: React.FC = () => {
   const [staleBulkScanIds, setStaleBulkScanIds] = useState<string[] | null>(
     null,
   );
+  const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -216,6 +219,7 @@ const DashboardPage: React.FC = () => {
     icon: React.ReactNode;
     onClick?: () => void;
     valueColor?: string;
+    suffix?: React.ReactNode;
   }[][] = [
     [
       { title: "Total IPs", value: stats.total_ips, icon: <GlobalOutlined /> },
@@ -249,6 +253,24 @@ const DashboardPage: React.FC = () => {
         value: alerting.length,
         icon: <WarningOutlined />,
         valueColor: alerting.length > 0 ? ERR : undefined,
+      },
+      {
+        title: "Duplicate Hostnames",
+        value: stats.duplicates_summary.hostname_groups,
+        icon: <DiffOutlined />,
+        onClick:
+          stats.duplicates_summary.hostname_groups > 0
+            ? () => setDuplicatesModalOpen(true)
+            : undefined,
+        valueColor:
+          stats.duplicates_summary.hostname_groups > 0 ? WARN : undefined,
+        suffix:
+          stats.duplicates_summary.hostname_groups > 0 ? (
+            <span style={{ fontSize: 12, color: DIM }}>
+              {" "}
+              · {stats.duplicates_summary.hostname_records} records
+            </span>
+          ) : undefined,
       },
     ],
   ];
@@ -289,6 +311,7 @@ const DashboardPage: React.FC = () => {
                   title={s.title}
                   value={s.value}
                   prefix={s.icon}
+                  suffix={s.suffix}
                   valueStyle={{ fontSize: 22, color: s.valueColor }}
                 />
               </Card>
@@ -663,6 +686,11 @@ const DashboardPage: React.FC = () => {
         onClose={() => setStaleBulkScanIds(null)}
         ids={staleBulkScanIds ?? []}
         onUpdated={() => void fetchStats()}
+      />
+
+      <DuplicatesModal
+        open={duplicatesModalOpen}
+        onClose={() => setDuplicatesModalOpen(false)}
       />
 
       {/* Charts row */}

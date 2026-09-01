@@ -226,6 +226,25 @@ async def get_dashboard_stats(
         "samples": stale_samples,
     }
 
+    # Duplicate hostnames summary — lightweight counts only (no record
+    # lists), so this stays cheap enough for the dashboard's hot path.
+    # IP-address duplicates are omitted here: a unique compound index
+    # (vrf_id + ip_address) should make them structurally impossible, so
+    # they're not worth a dashboard tile — full detail for both is still
+    # available via GET /ip-records/duplicates.
+    dup_cursor = ip_records_col.aggregate([
+        {"$match": {"hostname": {"$nin": [None, ""]}}},
+        {"$group": {"_id": "$hostname", "count": {"$sum": 1}}},
+        {"$match": {"count": {"$gt": 1}}},
+        {"$group": {"_id": None, "groups": {"$sum": 1}, "records": {"$sum": "$count"}}},
+    ])
+    dup_result = await dup_cursor.to_list(length=1)
+    dup_totals = dup_result[0] if dup_result else {"groups": 0, "records": 0}
+    duplicates_summary = {
+        "hostname_groups": dup_totals["groups"],
+        "hostname_records": dup_totals["records"],
+    }
+
     return {
         "total_ips": total_ips,
         "status_breakdown": status_breakdown,
@@ -244,4 +263,5 @@ async def get_dashboard_stats(
         "sync_status": sync_status,
         "paloalto_activity": paloalto_activity,
         "stale_in_use": stale_in_use,
+        "duplicates_summary": duplicates_summary,
     }

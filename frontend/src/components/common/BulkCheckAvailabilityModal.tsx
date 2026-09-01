@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Modal, Button, Progress, Typography, Alert } from "antd";
+import { Modal, Button, Progress, Typography, Alert, Space } from "antd";
+import { ClockCircleOutlined } from "@ant-design/icons";
 import {
   bulkCheckAvailabilityStream,
   type BulkScanRecordStart,
@@ -10,6 +11,12 @@ import type {
   CheckAvailabilityProgressEvent,
   CheckAvailabilityResult,
 } from "../../api/ipRecords";
+
+// Above this many records, ask for confirmation with a time estimate first
+// instead of launching straight into a scan that could run several minutes
+// — a real production batch of 71 records took ~5 minutes end to end.
+const CONFIRM_THRESHOLD = 20;
+const SECONDS_PER_RECORD = 4;
 
 interface BulkCheckAvailabilityModalProps {
   open: boolean;
@@ -32,8 +39,15 @@ const BulkCheckAvailabilityModal: React.FC<BulkCheckAvailabilityModalProps> = ({
   const [currentIp, setCurrentIp] = useState<string | null>(null);
   const [summary, setSummary] = useState<BulkScanSummary | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const needsConfirm = ids.length > CONFIRM_THRESHOLD;
+  const estMinutes = Math.max(
+    1,
+    Math.round((ids.length * SECONDS_PER_RECORD) / 60),
+  );
 
   useEffect(() => {
     if (logRef.current) {
@@ -113,13 +127,25 @@ const BulkCheckAvailabilityModal: React.FC<BulkCheckAvailabilityModalProps> = ({
     }
   }, [ids, appendLog, onUpdated]);
 
+  // On open, small batches start immediately; large ones wait behind a
+  // confirmation screen (see needsConfirm) until the user opts in.
   useEffect(() => {
-    if (open) void run();
+    if (open) {
+      setStarted(!needsConfirm);
+      setSummary(null);
+      setErrorMsg(null);
+      setLog([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (open && started) void run();
     return () => {
       if (!open) abortRef.current?.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, started]);
 
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
 
@@ -132,72 +158,100 @@ const BulkCheckAvailabilityModal: React.FC<BulkCheckAvailabilityModalProps> = ({
         onClose();
       }}
       footer={
-        <Button
-          onClick={() => {
-            abortRef.current?.abort();
-            onClose();
-          }}
-        >
-          Close
-        </Button>
+        started ? (
+          <Button
+            onClick={() => {
+              abortRef.current?.abort();
+              onClose();
+            }}
+          >
+            Close
+          </Button>
+        ) : (
+          <Space>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button type="primary" onClick={() => setStarted(true)}>
+              Start Scan
+            </Button>
+          </Space>
+        )
       }
       width={640}
     >
-      <Progress
-        percent={percent}
-        status={errorMsg ? "exception" : summary ? "success" : "active"}
-        style={{ marginBottom: 8 }}
-      />
-      <Typography.Text
-        type="secondary"
-        style={{ display: "block", marginBottom: 12 }}
-      >
-        {summary
-          ? `Done — ${summary.scanned} of ${summary.total} scanned, ${summary.found} found, ${summary.updated} updated`
-          : `${done} of ${total} scanned${currentIp ? ` — currently ${currentIp}` : ""}…`}
-      </Typography.Text>
+      {!started ? (
+        <>
+          <Typography.Paragraph>
+            This will scan{" "}
+            <Typography.Text strong>{ids.length}</Typography.Text> record
+            {ids.length === 1 ? "" : "s"} across Device42, Zabbix, and PaloAlto.
+          </Typography.Paragraph>
+          <Alert
+            type="warning"
+            showIcon
+            icon={<ClockCircleOutlined />}
+            message={`Estimated time: ~${estMinutes} minute${estMinutes === 1 ? "" : "s"}`}
+            description="Large batches can take several minutes since each record is checked against all three sources in sequence."
+          />
+        </>
+      ) : (
+        <>
+          <Progress
+            percent={percent}
+            status={errorMsg ? "exception" : summary ? "success" : "active"}
+            style={{ marginBottom: 8 }}
+          />
+          <Typography.Text
+            type="secondary"
+            style={{ display: "block", marginBottom: 12 }}
+          >
+            {summary
+              ? `Done — ${summary.scanned} of ${summary.total} scanned, ${summary.found} found, ${summary.updated} updated`
+              : `${done} of ${total} scanned${currentIp ? ` — currently ${currentIp}` : ""}…`}
+          </Typography.Text>
 
-      {errorMsg && (
-        <Alert
-          type="error"
-          showIcon
-          message={errorMsg}
-          style={{ marginBottom: 12 }}
-        />
-      )}
+          {errorMsg && (
+            <Alert
+              type="error"
+              showIcon
+              message={errorMsg}
+              style={{ marginBottom: 12 }}
+            />
+          )}
 
-      <div
-        ref={logRef}
-        style={{
-          background: "#0b0f14",
-          color: "#8ce68c",
-          fontFamily:
-            "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-          fontSize: 12,
-          lineHeight: 1.6,
-          padding: "10px 14px",
-          borderRadius: 4,
-          maxHeight: 320,
-          overflowY: "auto",
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        {log.map((line, i) => (
-          <div key={i}>{line}</div>
-        ))}
-      </div>
+          <div
+            ref={logRef}
+            style={{
+              background: "#0b0f14",
+              color: "#8ce68c",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+              fontSize: 12,
+              lineHeight: 1.6,
+              padding: "10px 14px",
+              borderRadius: 4,
+              maxHeight: 320,
+              overflowY: "auto",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {log.map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+          </div>
 
-      {summary && summary.errors.length > 0 && (
-        <Typography.Text
-          type="danger"
-          style={{ fontSize: 12, display: "block", marginTop: 8 }}
-        >
-          {summary.errors.length} error(s):{" "}
-          {summary.errors.slice(0, 3).join(" · ")}
-          {summary.errors.length > 3
-            ? ` · +${summary.errors.length - 3} more`
-            : ""}
-        </Typography.Text>
+          {summary && summary.errors.length > 0 && (
+            <Typography.Text
+              type="danger"
+              style={{ fontSize: 12, display: "block", marginTop: 8 }}
+            >
+              {summary.errors.length} error(s):{" "}
+              {summary.errors.slice(0, 3).join(" · ")}
+              {summary.errors.length > 3
+                ? ` · +${summary.errors.length - 3} more`
+                : ""}
+            </Typography.Text>
+          )}
+        </>
       )}
     </Modal>
   );

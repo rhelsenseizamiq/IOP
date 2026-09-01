@@ -52,6 +52,11 @@ export interface StaleInUse {
   samples: StaleInUseSample[];
 }
 
+export interface DuplicatesSummary {
+  hostname_groups: number;
+  hostname_records: number;
+}
+
 export interface DashboardStats {
   total_ips: number;
   status_breakdown: Record<string, number>;
@@ -70,4 +75,5 @@ export interface DashboardStats {
   sync_status: Record<string, SyncSourceStatus>;
   paloalto_activity: PaloAltoActivity;
   stale_in_use: StaleInUse;
+  duplicates_summary: DuplicatesSummary;
 }
