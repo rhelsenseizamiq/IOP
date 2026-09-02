@@ -14,6 +14,9 @@ PLAN.md
 *.bak
 *.bak.*
 
+# Login-page branding — kept as a production-only local asset, not pushed
+frontend/public/abb-logo.png
+
 # SSL certificates / private keys — managed outside repo, never committed
 nginx/ssl/
 *.pem

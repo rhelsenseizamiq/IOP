@@ -255,6 +255,26 @@ const SaveToRecordsButton: React.FC<{ ipAddress: string }> = ({
 
 // ── PaloAlto's own 30-day traffic log (real observed sessions) ─────────────
 
+/** The `nlogs` cap can be exhausted entirely by a busy host's last few
+ * seconds of traffic — this measures how wide a slice the returned,
+ * newest-first entries actually cover, so the UI can say so plainly
+ * instead of implying a full-window view. */
+function formatTrafficSpan(entries: PaloAltoTrafficLogEntry[]): string | null {
+  if (entries.length < 2) return null;
+  const newest = dayjs(entries[0].time_generated.replace(/\//g, "-"));
+  const oldest = dayjs(
+    entries[entries.length - 1].time_generated.replace(/\//g, "-"),
+  );
+  const seconds = Math.abs(newest.diff(oldest, "second"));
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 const trafficLogColumns: ColumnsType<PaloAltoTrafficLogEntry> = [
   {
     title: "Time",
@@ -412,8 +432,12 @@ const TrafficLogPanel: React.FC<{ ipAddress: string }> = ({ ipAddress }) => {
           )}
           {result.truncated && (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              Showing the most recent {result.entries.length} sessions — more
-              exist in this window.
+              {(() => {
+                const span = formatTrafficSpan(result.entries);
+                return span
+                  ? `Showing the most recent ${result.entries.length} sessions, spanning just ${span} — not the full ${result.days}-day window. This address has more traffic than the log cap can hold.`
+                  : `Showing the most recent ${result.entries.length} sessions — more exist in this window.`;
+              })()}
             </Typography.Text>
           )}
           {result.errors.length > 0 && (

@@ -22,6 +22,23 @@ from app.schemas.paloalto import (
 
 logger = logging.getLogger(__name__)
 
+
+# A blocked/silently-dropped host (e.g. a firewall-segmented DR site) hangs
+# until the connect timeout fires, and since all hosts are queried
+# concurrently, that timeout sets the floor for every check's total time —
+# capped short here so one unreachable host doesn't stall the rest. Read/
+# write/pool stay generous since a live-but-busy firewall can genuinely take
+# a few seconds to answer the NAT/security-rulebase queries.
+_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
+
+
+def _describe_exc(exc: Exception) -> str:
+    """httpx connection errors (e.g. a firewalled/unreachable host) often
+    stringify to an empty message, which rendered as a blank line after the
+    hostname in the UI's error list — fall back to the exception's class
+    name so there's always something readable."""
+    return str(exc) or exc.__class__.__name__
+
 # Cap on how many IPs a single bulk check (subnet scan) may cover — matches
 # the existing Network Scan feature's "deep" mode cap (up to /24), since a
 # bulk PaloAlto check does real in-memory work (NAT + security rulebase
@@ -432,13 +449,13 @@ class PaloAltoService:
 
         async with httpx.AsyncClient(
             verify=verify_ssl,
-            timeout=30.0,
+            timeout=_HTTP_TIMEOUT,
             follow_redirects=True,
         ) as client:
             try:
                 api_key = await PaloAltoService._keygen(client, base, username, password)
             except httpx.HTTPError as exc:
-                raise RuntimeError(f"Cannot connect to PaloAlto {host}: {exc}") from exc
+                raise RuntimeError(f"Cannot connect to PaloAlto {host}: {_describe_exc(exc)}") from exc
 
             headers = {"X-PAN-KEY": api_key}
 
@@ -672,7 +689,7 @@ class PaloAltoService:
             try:
                 api_key = await PaloAltoService._cached_key(client, base, username, password)
             except Exception as exc:
-                errors.append(f"{host}: {exc}")
+                errors.append(f"{host}: {_describe_exc(exc)}")
                 return
             headers = {"X-PAN-KEY": api_key}
 
@@ -696,7 +713,7 @@ class PaloAltoService:
                     errors.append(f"{host}: {msg}")
                     return
             except Exception as exc:
-                errors.append(f"{host}: failed to submit log query — {exc}")
+                errors.append(f"{host}: failed to submit log query — {_describe_exc(exc)}")
                 return
 
             for _ in range(15):  # ~15s max wait for the async log job
@@ -710,7 +727,7 @@ class PaloAltoService:
                     resp.raise_for_status()
                     root = ET.fromstring(resp.text)
                 except Exception as exc:
-                    errors.append(f"{host}: polling failed — {exc}")
+                    errors.append(f"{host}: polling failed — {_describe_exc(exc)}")
                     return
 
                 if root.findtext(".//job/status") != "FIN":
@@ -743,7 +760,7 @@ class PaloAltoService:
             errors.append(f"{host}: log query timed out")
 
         async with httpx.AsyncClient(
-            verify=verify_ssl, timeout=30.0, follow_redirects=True,
+            verify=verify_ssl, timeout=_HTTP_TIMEOUT, follow_redirects=True,
         ) as client:
             await asyncio.gather(*(_fetch_one(client, host) for host in hosts))
 
@@ -825,16 +842,16 @@ class PaloAltoService:
             try:
                 api_key = await PaloAltoService._cached_key(client, base, username, password)
             except Exception as exc:
-                errors.append(f"{host}: {exc}")
+                errors.append(f"{host}: {_describe_exc(exc)}")
                 for target_ip in ips:
-                    await _emit(target_ip, f"{host}: authentication failed — {exc}")
+                    await _emit(target_ip, f"{host}: authentication failed — {_describe_exc(exc)}")
                 return
             headers = {"X-PAN-KEY": api_key}
 
             try:
                 addr_entries = await PaloAltoService._get_address_entries(client, base, headers, api_key)
             except Exception as exc:
-                errors.append(f"{host} (address objects): {exc}")
+                errors.append(f"{host} (address objects): {_describe_exc(exc)}")
                 addr_entries = []
             name_map = PaloAltoService._build_address_name_map(addr_entries)
             addr_by_ip = PaloAltoService._build_address_by_ip(addr_entries)
@@ -842,13 +859,13 @@ class PaloAltoService:
             try:
                 nat_index = await PaloAltoService._get_nat_index(client, base, headers, api_key, name_map)
             except Exception as exc:
-                errors.append(f"{host} (NAT rules): {exc}")
+                errors.append(f"{host} (NAT rules): {_describe_exc(exc)}")
                 nat_index = []
 
             try:
                 security_index = await PaloAltoService._get_security_index(client, base, headers, api_key, name_map)
             except Exception as exc:
-                errors.append(f"{host} (security rules): {exc}")
+                errors.append(f"{host} (security rules): {_describe_exc(exc)}")
                 security_index = []
 
             arp_by_ip: dict[str, ET.Element] = {}
@@ -869,12 +886,12 @@ class PaloAltoService:
                     if ip_val:
                         arp_by_ip[ip_val] = entry
             except Exception as exc:
-                errors.append(f"{host} (ARP table): {exc}")
+                errors.append(f"{host} (ARP table): {_describe_exc(exc)}")
 
             try:
                 zone_map = await PaloAltoService._get_interface_zone_map(client, base, headers, api_key)
             except Exception as exc:
-                errors.append(f"{host} (interfaces): {exc}")
+                errors.append(f"{host} (interfaces): {_describe_exc(exc)}")
                 zone_map = {}
 
             for target_ip in ips:
@@ -954,7 +971,7 @@ class PaloAltoService:
                     )
 
         async with httpx.AsyncClient(
-            verify=verify_ssl, timeout=30.0, follow_redirects=True,
+            verify=verify_ssl, timeout=_HTTP_TIMEOUT, follow_redirects=True,
         ) as client:
             await asyncio.gather(*(_check_host(client, host) for host in hosts))
 
