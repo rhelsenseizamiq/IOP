@@ -62,6 +62,7 @@ export interface DashboardStats {
   status_breakdown: Record<string, number>;
   os_breakdown: Record<string, number>;
   environment_breakdown: Record<string, number>;
+  power_state_breakdown: Record<string, number>;
   total_subnets: number;
   total_vrfs: number;
   total_aggregates: number;

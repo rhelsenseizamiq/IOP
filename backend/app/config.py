@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     PALOALTO_USERNAME: str = ""
     PALOALTO_PASSWORD: str = ""
 
+    # vCenter/vSphere integration — real-time Check Availability lookup +
+    # nightly VM inventory sync. VCENTER_HOSTS is comma-separated (multiple
+    # vCenters); the same read-only service account is used for all of them.
+    VCENTER_HOSTS: str = ""
+    VCENTER_USERNAME: str = ""
+    VCENTER_PASSWORD: str = ""
+    VCENTER_VERIFY_SSL: bool = False
+
     @field_validator("VAULT_MASTER_KEY")
     @classmethod
     def validate_vault_master_key(cls, v: str) -> str:

@@ -16,7 +16,7 @@ import type {
   CheckAvailabilityResult,
 } from "../../api/ipRecords";
 
-type SourceKey = "device42" | "zabbix" | "paloalto";
+type SourceKey = "device42" | "zabbix" | "paloalto" | "vsphere";
 type SourceState = {
   status: "pending" | "checking" | "done" | "error";
   found?: boolean;
@@ -24,17 +24,19 @@ type SourceState = {
   message?: string;
 };
 
-const SOURCE_ORDER: SourceKey[] = ["device42", "zabbix", "paloalto"];
+const SOURCE_ORDER: SourceKey[] = ["device42", "zabbix", "paloalto", "vsphere"];
 const SOURCE_LABEL: Record<SourceKey, string> = {
   device42: "Device42",
   zabbix: "Zabbix",
   paloalto: "PaloAlto",
+  vsphere: "vSphere",
 };
 
 const initialSources = (): Record<SourceKey, SourceState> => ({
   device42: { status: "pending" },
   zabbix: { status: "pending" },
   paloalto: { status: "pending" },
+  vsphere: { status: "pending" },
 });
 
 const SourceRow: React.FC<{ label: string; state: SourceState }> = ({
@@ -238,24 +240,34 @@ const CheckAvailabilityModal: React.FC<CheckAvailabilityModalProps> = ({
           message={
             result.found
               ? `${ipAddress} is IN USE`
-              : `${ipAddress} appears unused across all 3 sources`
+              : `${ipAddress} appears unused across all 4 sources`
           }
-          description={
-            recordId
-              ? (() => {
-                  const changes: string[] = [];
-                  if (result.status_updated)
-                    changes.push(`Status → ${result.new_status}`);
-                  if (result.hostname)
-                    changes.push(`Hostname → ${result.hostname}`);
-                  if (result.os_type) changes.push(`OS → ${result.os_type}`);
-                  if (changes.length) return changes.join(" · ");
-                  return result.found
-                    ? "Found, but everything was already up to date — nothing changed."
-                    : "No source found it — status was not changed (absence isn't proof it's free).";
-                })()
-              : "Informational only — this address has no IP record yet."
-          }
+          description={(() => {
+            const powerLine =
+              result.vsphere_power_state === "on"
+                ? "Power: On"
+                : result.vsphere_power_state === "off"
+                  ? "Power: Off"
+                  : null;
+
+            if (!recordId) {
+              return powerLine
+                ? `Informational only — this address has no IP record yet. ${powerLine}.`
+                : "Informational only — this address has no IP record yet.";
+            }
+
+            const changes: string[] = [];
+            if (result.status_updated)
+              changes.push(`Status → ${result.new_status}`);
+            if (result.hostname) changes.push(`Hostname → ${result.hostname}`);
+            if (result.os_type) changes.push(`OS → ${result.os_type}`);
+            const summary = changes.length
+              ? changes.join(" · ")
+              : result.found
+                ? "Found, but everything was already up to date — nothing changed."
+                : "No source found it — status was not changed (absence isn't proof it's free).";
+            return powerLine ? `${summary} · ${powerLine}` : summary;
+          })()}
         />
       )}
     </Modal>

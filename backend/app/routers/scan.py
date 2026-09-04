@@ -100,6 +100,12 @@ class DiscoveredHost(BaseModel):
     hostname: Optional[str] = None
     os_hint: Optional[str] = None
     open_ports: list[int] = []
+    # "on" / "off" / None — looked up from this IP's existing record (set by
+    # vCenter sync or a Check Availability run), never a live vCenter query:
+    # a scan can cover thousands of hosts, so per-host vCenter lookups here
+    # would reintroduce the same latency problem PaloAlto's DR hosts caused
+    # earlier. This is a local DB read only.
+    power_state: Optional[str] = None
 
 
 class ScanResult(BaseModel):
@@ -229,6 +235,13 @@ async def scan_network(
     ]
     results = await asyncio.gather(*tasks)
     discovered = [r for r in results if r is not None]
+
+    if discovered:
+        ip_repo = IPRecordRepository(get_database()["ip_records"])
+        power_states = await ip_repo.find_power_states([d.ip_address for d in discovered])
+        for d in discovered:
+            d.power_state = power_states.get(d.ip_address)
+
     duration = round(time.monotonic() - start, 1)
 
     logger.info(

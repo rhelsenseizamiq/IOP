@@ -49,6 +49,14 @@ async def get_dashboard_stats(
     for env in Environment:
         env_breakdown.setdefault(env.value, 0)
 
+    # vSphere-tracked power state — only ever set from vCenter (nightly sync
+    # or a live Check Availability run), so this naturally excludes every
+    # record vCenter has never matched rather than showing a dominant
+    # "unknown" bucket for the ~94% of IPs with no vSphere data at all.
+    power_state_breakdown = await ip_repo.aggregate_by_field("power_state")
+    for state in ("on", "off"):
+        power_state_breakdown.setdefault(state, 0)
+
     total_ips = sum(status_breakdown.values())
 
     # Collection counts
@@ -130,8 +138,9 @@ async def get_dashboard_stats(
     ]
 
     # Nightly sync health — written by scripts/device42_sync.py,
-    # scripts/zabbix_sync.py, and scripts/paloalto_sync.py at the end of
-    # each cron run (see scripts/README.md)
+    # scripts/zabbix_sync.py, scripts/paloalto_sync.py, and
+    # scripts/vcenter_sync.py at the end of each cron run (see
+    # scripts/README.md)
     sync_status: dict = {}
     sync_docs = await db["sync_status"].find({}).to_list(length=10)
     for doc in sync_docs:
@@ -254,6 +263,7 @@ async def get_dashboard_stats(
         "ip_v4_count": ip_v4_count,
         "ip_v6_count": ip_v6_count,
         "environment_breakdown": env_breakdown,
+        "power_state_breakdown": power_state_breakdown,
         "total_subnets": total_subnets,
         "total_vrfs": total_vrfs,
         "total_aggregates": total_aggregates,

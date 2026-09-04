@@ -136,7 +136,7 @@ async def test_delete_cabinet_cascades(cabinet_service, password_repo):
         "created_at": now, "updated_at": now, "created_by": "admin", "updated_by": "admin",
     })
     await cabinet_service.delete_cabinet(
-        cabinet_id=cab.id, deleted_by="admin", role="Administrator", client_ip="127.0.0.1"
+        cabinet_id=cab.id, deleted_by="admin", role="SuperAdmin", client_ip="127.0.0.1"
     )
     remaining, _ = await password_repo.find_by_cabinet(cab.id)
     assert len(remaining) == 0

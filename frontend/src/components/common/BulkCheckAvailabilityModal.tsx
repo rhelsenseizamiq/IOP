@@ -82,7 +82,10 @@ const BulkCheckAvailabilityModal: React.FC<BulkCheckAvailabilityModalProps> = ({
             );
           },
           onProgress: (event: CheckAvailabilityProgressEvent) => {
-            const label = event.source[0].toUpperCase() + event.source.slice(1);
+            const label =
+              event.source === "vsphere"
+                ? "vSphere"
+                : event.source[0].toUpperCase() + event.source.slice(1);
             if (event.status === "checking") {
               appendLog(`  [${label}] checking…`);
             } else if (event.status === "done") {
@@ -99,6 +102,8 @@ const BulkCheckAvailabilityModal: React.FC<BulkCheckAvailabilityModalProps> = ({
               changes.push(`status → ${result.new_status}`);
             if (result.hostname) changes.push(`hostname → ${result.hostname}`);
             if (result.os_type) changes.push(`OS → ${result.os_type}`);
+            if (result.vsphere_power_state)
+              changes.push(`power → ${result.vsphere_power_state}`);
             appendLog(
               changes.length > 0
                 ? `  → updated: ${changes.join(", ")}`
@@ -151,7 +156,7 @@ const BulkCheckAvailabilityModal: React.FC<BulkCheckAvailabilityModalProps> = ({
 
   return (
     <Modal
-      title="Bulk Scan — Device42 + Zabbix + PaloAlto"
+      title="Bulk Scan — Device42 + Zabbix + PaloAlto + vSphere"
       open={open}
       onCancel={() => {
         abortRef.current?.abort();
@@ -183,14 +188,15 @@ const BulkCheckAvailabilityModal: React.FC<BulkCheckAvailabilityModalProps> = ({
           <Typography.Paragraph>
             This will scan{" "}
             <Typography.Text strong>{ids.length}</Typography.Text> record
-            {ids.length === 1 ? "" : "s"} across Device42, Zabbix, and PaloAlto.
+            {ids.length === 1 ? "" : "s"} across Device42, Zabbix, PaloAlto, and
+            vSphere.
           </Typography.Paragraph>
           <Alert
             type="warning"
             showIcon
             icon={<ClockCircleOutlined />}
             message={`Estimated time: ~${estMinutes} minute${estMinutes === 1 ? "" : "s"}`}
-            description="Large batches can take several minutes since each record is checked against all three sources in sequence."
+            description="Large batches can take several minutes since each record is checked against all four sources in sequence."
           />
         </>
       ) : (

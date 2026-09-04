@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.core.database import connect_to_mongo, close_mongo_connection, get_database
+from app.core.environment_heuristics import looks_like_test
 from app.repositories.subnet_repository import SubnetRepository
 from app.repositories.ip_record_repository import IPRecordRepository
 
@@ -87,7 +88,7 @@ async def is_stale_disabled(client: httpx.AsyncClient, hostid: str, status: str)
 
 
 def environment_for(hostname: str | None) -> str:
-    if hostname and "test" in hostname.lower():
+    if looks_like_test(hostname):
         return "Test"
     return "Production"
 

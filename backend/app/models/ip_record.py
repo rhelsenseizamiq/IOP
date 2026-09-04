@@ -41,6 +41,9 @@ class IPRecord(BaseModel):
     vrf_id: Optional[str] = None
     status: IPStatus = IPStatus.FREE
     environment: Environment
+    # "on" / "off" — set only from vSphere (nightly sync or a live Check
+    # Availability); stays None for anything vCenter has never matched.
+    power_state: Optional[str] = None
     owner: Optional[str] = None
     description: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

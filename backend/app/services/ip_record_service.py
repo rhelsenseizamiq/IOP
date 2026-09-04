@@ -26,6 +26,7 @@ def _to_response(record: IPRecord) -> IPRecordResponse:
         subnet_id=record.subnet_id,
         status=record.status,
         environment=record.environment,
+        power_state=record.power_state,
         owner=record.owner,
         description=record.description,
         created_at=record.created_at,

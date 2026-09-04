@@ -84,6 +84,7 @@ interface ScanRow {
   hostname: string;
   os_type: OSType;
   open_ports: number[];
+  power_state: "on" | "off" | null;
   subnet_id: string | null;
   subnet_cidr: string | null;
 }
@@ -131,7 +132,14 @@ function findSubnetForIP(
 }
 
 function parseCidrs(text: string): string[] {
-  return [...new Set(text.split(/[\n,]+/).map((c) => c.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      text
+        .split(/[\n,]+/)
+        .map((c) => c.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function estimateHosts(cidr: string): number {
@@ -240,9 +248,7 @@ const NetworkScanPage: React.FC = () => {
   // Auto-Save mode state
   const [saveInactive, setSaveInactive] = useState(false);
   const [overwriteStatus, setOverwriteStatus] = useState(false);
-  const [autoResult, setAutoResult] = useState<DiscoverScanResult | null>(
-    null,
-  );
+  const [autoResult, setAutoResult] = useState<DiscoverScanResult | null>(null);
 
   // Subnet creation modal for unmatched hosts (Review mode only)
   const [createModal, setCreateModal] = useState<{
@@ -350,6 +356,7 @@ const NetworkScanPage: React.FC = () => {
             hostname: host.hostname ?? "",
             os_type: (host.os_hint as OSType) ?? "Unknown",
             open_ports: host.open_ports,
+            power_state: host.power_state,
             subnet_id: matched?.id ?? null,
             subnet_cidr: matched?.cidr ?? null,
           };
@@ -540,6 +547,22 @@ const NetworkScanPage: React.FC = () => {
             ))}
           </Select>
         ),
+      },
+      {
+        title: "Power",
+        dataIndex: "power_state",
+        key: "power_state",
+        width: 90,
+        // Looked up from this IP's existing record (vCenter sync or a
+        // previous Check Availability run) — not a live vCenter query.
+        render: (v: "on" | "off" | null) =>
+          v === "on" ? (
+            <Tag color="green">On</Tag>
+          ) : v === "off" ? (
+            <Tag color="red">Off</Tag>
+          ) : (
+            <Typography.Text type="secondary">—</Typography.Text>
+          ),
       },
     ];
 
@@ -751,16 +774,16 @@ const NetworkScanPage: React.FC = () => {
         <div style={{ marginTop: 10 }}>
           {saveMode === "review" ? (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              Discovered hosts are shown for review first — pick which ones
-              to import as Reserved records, with the option to assign a
-              hostname, OS type, and subnet per host.
+              Discovered hosts are shown for review first — pick which ones to
+              import as Reserved records, with the option to assign a hostname,
+              OS type, and subnet per host.
             </Typography.Text>
           ) : (
             <Space direction="vertical" size={10} style={{ width: "100%" }}>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 Discovered (active) hosts are stored directly as{" "}
-                <Tag color="green">In Use</Tag>. IPs without a matching
-                subnet in your database are skipped — add subnets first.
+                <Tag color="green">In Use</Tag>. IPs without a matching subnet
+                in your database are skipped — add subnets first.
               </Typography.Text>
               <Row gutter={24}>
                 <Col>
@@ -1082,9 +1105,7 @@ const NetworkScanPage: React.FC = () => {
                       );
                       return matched ? (
                         <Space size={4}>
-                          <Typography.Text code>
-                            {matched.cidr}
-                          </Typography.Text>
+                          <Typography.Text code>{matched.cidr}</Typography.Text>
                           <Typography.Text type="secondary">
                             {matched.name}
                           </Typography.Text>
@@ -1143,9 +1164,7 @@ const NetworkScanPage: React.FC = () => {
                       );
                       return matched ? (
                         <Space size={4}>
-                          <Typography.Text code>
-                            {matched.cidr}
-                          </Typography.Text>
+                          <Typography.Text code>{matched.cidr}</Typography.Text>
                           <Typography.Text type="secondary">
                             {matched.name}
                           </Typography.Text>

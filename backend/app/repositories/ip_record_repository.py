@@ -24,6 +24,20 @@ class IPRecordRepository(BaseRepository[IPRecord]):
         docs = await cursor.to_list(length=None)
         return {doc["ip_address"] for doc in docs}
 
+    async def find_power_states(self, ip_addresses: list[str]) -> dict[str, Optional[str]]:
+        """Returns {ip_address: power_state} for whichever of the given IPs
+        already have a record — a single batched local-DB read, not a live
+        vCenter lookup, so it stays fast even for a scan covering thousands
+        of hosts. Used by the subnet scan review table to surface
+        already-known vSphere power state."""
+        if not ip_addresses:
+            return {}
+        cursor = self._col.find(
+            {"ip_address": {"$in": ip_addresses}}, {"ip_address": 1, "power_state": 1},
+        )
+        docs = await cursor.to_list(length=None)
+        return {doc["ip_address"]: doc.get("power_state") for doc in docs}
+
     async def find_by_ip_and_vrf(
         self, ip_address: str, vrf_id: Optional[str]
     ) -> Optional[IPRecord]:

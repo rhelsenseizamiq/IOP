@@ -84,7 +84,7 @@ Discover/Import actions.
 
 ### Core IPAM
 - Subnet management (CIDR, gateway, VLAN, environment, VRF, alert threshold)
-- IP record tracking: hostname, OS type, owner, status (Free / Reserved / In Use)
+- IP record tracking: hostname, OS type, owner, status (Free / Reserved / In Use), power state (On / Off / — — vSphere-tracked VMs only)
 - Automatic prefix nesting — smaller CIDRs become children of larger ones
 - VRFs — isolated routing domains with optional Route Distinguisher
 - Aggregates & RIRs — top-level address blocks
@@ -95,10 +95,11 @@ Discover/Import actions.
 > **Note:** VRFs, Aggregates, and Assets pages are currently disabled (nav hidden, routes redirect to Dashboard) as they're unused in this deployment. All code, routes, and backend routers are intact — see `frontend/src/App.tsx` and `frontend/src/components/layout/Sidebar.tsx` for the commented-out entries to re-enable.
 
 ### Dashboard & Operations
-- recharts dashboard: IP status donut, environment bar, OS bar, top subnets, recent activity
-- Data Sync Health — freshness of the nightly Device42/Zabbix/PaloAlto syncs (last run, duration, counters); flags a source "Overdue" past 27h since its last run
+- recharts dashboard: IP status donut, environment bar (sorted descending — Mongo `$group` doesn't guarantee order), OS bar, top subnets, recent activity
+- Data Sync Health — freshness of the nightly Device42/Zabbix/PaloAlto/**vCenter** syncs (last run, duration, counters); flags a source "Overdue" past 27h since its last run
+- **vSphere Power State** — On/Off counts across every IP vCenter has actually matched (not all IPs — most have no vSphere data at all, so an "Unknown" bucket would just be noise)
 - **PaloAlto Activity** — real-time Check Availability usage (distinct from the nightly sync): checks in the last 24h/7d, % found in-use over 7 days, 5 most recent lookups
-- **Stale "In Use" Records** — records marked `In Use` not re-confirmed by any source (Device42/Zabbix/PaloAlto/manual check) in 90+ days; purely informational, view-all modal, plus **Bulk Scan All** to re-check the whole list at once
+- **Stale "In Use" Records** — records marked `In Use` not re-confirmed by any source (Device42/Zabbix/PaloAlto/vSphere/manual check) in 90+ days; purely informational, view-all modal, plus **Bulk Scan All** to re-check the whole list at once
 - Subnet utilisation alert threshold — warning badge on row + dashboard banner
 - Bulk reserve / release / update-fields for multiple IP records
 - Per-record change history with before→after field diffs
@@ -107,12 +108,13 @@ Discover/Import actions.
 - TCP-based host discovery for any CIDR; no ICMP/root needed
 - OS fingerprinting + reverse DNS
 - Infrastructure scan — scan multiple CIDRs, save IPs directly to DB
+- Review table shows **power state** for any discovered IP already known to vCenter — a local DB lookup against existing records, not a live per-host vCenter query (a scan can cover thousands of hosts; that would reintroduce the same per-host latency problem PaloAlto's DR hosts once caused)
 
 ### Integrations
 - **Device42** — REST API IP/device discovery with OS mapping. Credentials entered per-session in the Integrations UI.
 - **Zabbix** — JSON-RPC API (Bearer token auth), host + interface discovery. Credentials are server-configured only (`.env.api`), never entered in the browser — the Integrations card just discovers and lets you import directly.
 - **PaloAlto** — PAN-OS XML API: address objects, interface IPs, ARP table. Discover/Import here is bulk, one-time; see **PaloAlto Check** below for real-time single-IP/subnet lookups.
-- **vSphere** — vCenter VM discovery via pyVmomi
+- **vSphere** — vCenter VM discovery via pyVmomi. Manual Discover/Import (per-request host/credentials, SuperAdmin-only) for bulk one-time imports, same as this section's other sources. Also a 4th real-time **Check Availability** source and a **nightly sync** — see below.
 - **DNS conflict detection** — FORWARD_MISMATCH, PTR_MISMATCH, NO_FORWARD, DUPLICATE_HOSTNAME
 
 > **RBAC note:** Discover/Import on this page is **SuperAdmin-only** — Operator and Administrator can open the page and see the cards, but the action buttons are disabled. This is intentional (see User Roles above).
@@ -127,27 +129,36 @@ A dedicated page (`/paloalto-check`, Operator+) for on-demand PaloAlto lookups �
 - **30-day PAN-OS traffic logs** — pulls PaloAlto's own historical traffic/session log entries for an address directly from the firewall (async job submission + polling) — genuine evidence of real recent network activity, distinct from IPAM's own check-history above.
 - **Subnets → right-click → Scan in PaloAlto** — bulk-checks every host address in a subnet with a live progress bar + trace log, auto-saves found addresses, refreshes utilization, and surfaces the **top security/NAT rules** actually referencing addresses in that subnet (reused from the scan's own match data — no extra PAN-OS calls).
 
-#### Nightly automated sync (Device42 + Zabbix + PaloAlto)
-All three run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
+#### Nightly automated sync (Device42 + Zabbix + PaloAlto + vCenter)
+All four run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
 
 | Time | Job | Typical duration |
 |---|---|---|
 | 2:00 AM | Device42 full sync | ~25 min (~72k IPs) |
 | 2:35 AM | Zabbix full sync | ~2-5 sec (~475 hosts) |
 | 2:50 AM | PaloAlto full sync | ~25-30 sec (across configured firewalls) |
+| 3:10 AM | vCenter full sync | ~35 sec (~1,230 VMs across both vCenters) |
 
-Device42 sets the baseline status from its own inventory `available` flag; Zabbix and PaloAlto run after and **only ever write `"In Use"`** (upgrade on live positive evidence, or skip) — neither can undo a correct Device42-derived `Free`, and neither touches a `Reserved` record, so none of the three jobs can produce conflicting data even if a run window ever grows to overlap. Zabbix hosts that are disabled *and* have no monitoring data in the last 6 months are treated as likely decommissioned and skipped entirely. PaloAlto's nightly sync only imports named single-host (`/32`) address objects — the closest equivalent to Device42's curated inventory — deliberately ignoring the live ARP table and wider-subnet objects (too noisy for an automated job; still available via the manual Discover/Import flow). All wrapper scripts (`scripts/run_device42_sync.sh`, `scripts/run_zabbix_sync.sh`, `scripts/run_paloalto_sync.sh`) use a lock file that auto-clears after 2 hours if a prior run was killed by a crash/reboot, so a stuck lock can't silently block every future run. See `scripts/README.md` for the full operational writeup.
+Device42 sets the baseline status from its own inventory `available` flag; Zabbix, PaloAlto, and vCenter run after and **only ever write `"In Use"`** (upgrade on live positive evidence, or skip) — neither can undo a correct Device42-derived `Free`, and none touches a `Reserved` record, so no job can produce conflicting data even if a run window ever grows to overlap. Zabbix hosts that are disabled *and* have no monitoring data in the last 6 months are treated as likely decommissioned and skipped entirely. PaloAlto's nightly sync only imports named single-host (`/32`) address objects — the closest equivalent to Device42's curated inventory — deliberately ignoring the live ARP table and wider-subnet objects (too noisy for an automated job; still available via the manual Discover/Import flow). All wrapper scripts (`scripts/run_device42_sync.sh`, `scripts/run_zabbix_sync.sh`, `scripts/run_paloalto_sync.sh`, `scripts/run_vcenter_sync.sh`) use a lock file that auto-clears after 2 hours if a prior run was killed by a crash/reboot, so a stuck lock can't silently block every future run. See `scripts/README.md` for the full operational writeup.
+
+**vCenter sync specifics** (`scripts/vcenter_sync.py`) — discovers every **powered-on** VM across both configured vCenters (`VCENTER_HOSTS`, shared read-only account) and writes, per guest IP:
+- **Hostname** — the guest's own DNS name as reported by VMware Tools, applied on both create and update. Falls back to the VM's vCenter inventory name whenever VMware Tools reports an unconfigured OS default like `localhost.localdomain` (common after a clone with no sysprep/cloud-init) — that placeholder was previously written straight into IP Records until this guard was added.
+- **OS type** — best-effort guess from `guestFullName`.
+- **Power state** — `"on"`/`"off"`, surfaced as its own column on IP Records and the Network Scanner review table, and as a Dashboard panel. The nightly batch only ever sets `"on"` (powered-off VMs are skipped entirely); a live Check Availability run is what can later observe and record `"off"`.
+- **Environment → DR** — auto-tagged **only** when the VM's own vCenter datacenter/cluster name genuinely says so (whole-word `dr`/`disaster`, so it doesn't collide with vSphere's own "DRS" cluster feature name). Deliberately does **not** infer DR from which vCenter a VM was discovered on — an earlier version treated every VM on the Baku site's vCenter as DR, which broke on real shared workloads that vCenter also hosts (e.g. an NTP `timeserver`). On an existing record this only ever *promotes* to DR, never overwrites a weaker classification.
+- Template VMs and generic template-named hosts are not filtered out today — a real vCenter template that's powered on with an IP will sync like any other VM; worth a policy decision if that turns out to be noisy.
 
 #### Check Availability — merged, single click (per-record, real-time)
-Right-click any IP (in IP Records) → **Check Availability** scans **Device42, then Zabbix, then PaloAlto in sequence** — one action instead of picking a source. A live progress modal shows each source as it's checked, then applies the combined result immediately:
+Right-click any IP (in IP Records) → **Check Availability** scans **Device42, then Zabbix, then PaloAlto, then vSphere in sequence** — one action instead of picking a source. A live progress modal shows each source as it's checked, then applies the combined result immediately:
 - **Device42** — real-time inventory lookup (not a network probe); reports the assigned device, or that it's free. A miss never auto-changes status (Device42's inventory isn't guaranteed complete)
 - **Zabbix** — real-time live monitoring lookup; Zabbix actively polls its hosts, so a positive result auto-marks "In Use", but a miss/down result never auto-marks "Free"
 - **PaloAlto** — checks every configured firewall for a named address object, live ARP entry, NAT rule, or security policy referencing the address
+- **vSphere** — an indexed `SearchIndex.FindAllByIp` lookup (not a full VM inventory walk) across every configured vCenter, with a raw-socket preflight so an unreachable vCenter fails in ~5s instead of hanging on the OS-level TCP timeout (~2 min). Reports the VM's guest DNS name, OS type, and **power state** — shown explicitly either way ("Found — hostname (running)" / "(powered off)"). A match on a **powered-off** VM is real evidence the address exists in vCenter's inventory, but not evidence it's currently in use on the network, so on its own it does **not** upgrade the record to `In Use` (it still shows in the result for visibility if something else did trigger the update).
 
-Any single source finding a match can upgrade the record to `In Use` — this is **asymmetric on purpose**: no source is guaranteed complete, so a miss from all three never auto-downgrades a record to `Free`, and a `Reserved` record is never auto-released. When PaloAlto finds it, **hostname** is enriched from the match; when Device42 or Zabbix return an OS name, **OS Type** is filled in too (same upgrade-only rule). `ens192`/`ens224` real-NIC pings (via `scripts/scan_helper.py`, systemd) remain available as legacy per-source options on the underlying `/ping` endpoint.
+Any single source finding a match (vSphere only counts when powered on) can upgrade the record to `In Use` — this is **asymmetric on purpose**: no source is guaranteed complete, so a miss from all four never auto-downgrades a record to `Free`, and a `Reserved` record is never auto-released. Hostname prefers PaloAlto's match; vSphere's guest DNS name fills in whenever PaloAlto didn't provide one. OS Type prefers Device42, then Zabbix, then vSphere (same upgrade-only rule throughout). `ens192`/`ens224` real-NIC pings (via `scripts/scan_helper.py`, systemd) remain available as legacy per-source options on the underlying `/ping` endpoint.
 
 #### Show Duplicates & Bulk Scan
-IP Records toolbar → **Show Duplicates** finds records sharing the exact same **hostname** or **IP address** (IP duplicates should be structurally impossible — there's a DB uniqueness constraint — but are checked anyway as a safety net; hostname duplicates are common and genuinely useful, e.g. a stale record left behind when a host was decommissioned and its address reassigned). Each tab has a **Bulk Scan All** button (Administrator) that re-runs the merged Device42+Zabbix+PaloAlto check sequentially across every affected record. The same **Bulk Scan** action is also available from the Dashboard's Stale "In Use" Records panel (see below).
+IP Records toolbar → **Show Duplicates** finds records sharing the exact same **hostname** or **IP address** (IP duplicates should be structurally impossible — there's a DB uniqueness constraint — but are checked anyway as a safety net; hostname duplicates are common and genuinely useful, e.g. a stale record left behind when a host was decommissioned and its address reassigned). Each tab has a **Bulk Scan All** button (Administrator) that re-runs the merged Device42+Zabbix+PaloAlto+vSphere check sequentially across every affected record. The same **Bulk Scan** action is also available from the Dashboard's Stale "In Use" Records panel (see below).
 
 ### Password Vault
 - Cabinet-based secret storage — each cabinet has a name, description, and explicit member list
@@ -700,6 +711,39 @@ All security fixes verified. All new features (folders, share links, password ge
 ---
 
 ## Changelog
+
+### v9.2.0 — vCenter/vSphere Integration, Power State Tracking, Environment Auto-Tagging
+
+**vCenter as a 4th real-time source + nightly sync**
+
+- **Check Availability** now scans Device42 → Zabbix → PaloAlto → **vSphere** in sequence. vSphere lookup uses `SearchIndex.FindAllByIp` (an indexed point lookup, not a full VM inventory walk) across every configured vCenter, with a raw-socket preflight so an unreachable vCenter fails in ~5s instead of hanging on the OS-level TCP connect timeout (~2 min) — `asyncio.wait_for` alone can't cut this off once the underlying blocking call has started (cancelling a thread mid-syscall is a no-op), so the timeout has to live inside the blocking call itself.
+- **Nightly vCenter sync** (`scripts/vcenter_sync.py`, 3:10 AM, after PaloAlto) — discovers every powered-on VM across both configured vCenters and writes IP address, hostname, OS type, power state, and (conditionally) environment, same upgrade-only pattern as the other three syncs.
+- **Manual vSphere Discover/Import** (Integrations page, SuperAdmin-only, pre-existing) is unchanged — still a separate, per-request-credentials bulk import flow.
+
+**Power state tracking**
+
+- New `power_state` field (`"on"` / `"off"` / unset) — set only from vSphere (nightly sync or a live Check Availability run). Surfaced as a column on IP Records, a column on the Network Scanner review table (a local DB lookup against already-known records, not a live per-host vCenter query — a scan can cover thousands of hosts), and a new Dashboard panel (On/Off counts, scoped to vSphere-tracked IPs only).
+- A **powered-off** vSphere match is real evidence the address exists in inventory, but not evidence it's in use on the network — it does not by itself upgrade a record to `In Use`, though it's still shown in the Check Availability result for visibility.
+- Found and fixed a service-layer bug where a hand-written `_to_response()` converter (used by every IP-record endpoint) had an explicit field list that didn't include the new `power_state` field — the data was correct in MongoDB and even in the write path, but silently dropped on every read until fixed.
+
+**Environment auto-tagging — a real false-positive, found and fixed**
+
+- Original version tagged `Environment: DR` for any VM discovered via the Baku-site vCenter, assuming that vCenter was DR-exclusive. It isn't — it hosts a mix of workloads (e.g. a shared NTP `timeserver`), and 277 records got wrongly promoted to DR before this was caught (reported by a user checking real Dashboard data). Fixed to tag DR only from the VM's own datacenter/cluster name actually saying so (whole-word `dr`/`disaster`, avoiding a collision with vSphere's own "DRS" cluster feature) — verified against real data that neither vCenter currently has such naming, so DR auto-tagging is honestly dormant rather than guessing.
+- Correcting the 277 records by matching on `description` text missed one (`10.50.1.84`) whose description/`updated_by` had since been overwritten by an unrelated Check Availability run — re-verified by cross-referencing every DR-tagged record against the live vSphere VM inventory directly (immune to mutable-field drift) and corrected the straggler.
+- Same audit extended to Device42/Zabbix/PaloAlto's own `"test" in hostname.lower()` Test-environment heuristic — same shape of risk (a bare substring match), though verified to have zero live false positives today. Hardened anyway with a shared `app/core/environment_heuristics.py` (`looks_like_test()`) used by all four sync scripts, excluding known collision words (*attestation*, *latest*, *contest*, etc.) without regressing any of the 380 currently-correct Test classifications (many of which glue "test" onto other letters with no separator, e.g. `TestiniumNode12`, so a naive whole-word fix would have broken them).
+
+**Hostname trust bug — a second false positive, found via broader audit**
+
+- "Always trust vSphere's guest hostname" (a follow-up request after the DR fix) blindly overwrote 21 real, human-assigned VM names (e.g. `Ferhat_test_server`, `Oqtay_RHEL8`) with the literal string `localhost.localdomain` — what VMware Tools reports when a cloned VM's OS was never actually customized (no sysprep/cloud-init hostname step ran). Fixed with a shared `is_real_hostname()` guard (`vsphere_service.py`, used by both the nightly sync and the live Check Availability lookup) that falls back to vCenter's own inventory name — always real, human-assigned — whenever the guest-reported hostname is a known placeholder. Recovered the real names for all 21 affected records from their own `description` field.
+- One of those 21 had a knock-on `Environment` misclassification too (Production instead of Test, since the environment guess ran against the corrupted hostname at creation time) — fixed only because it was provably created fresh by the buggy run that same day; a superficially similar case from April was deliberately left alone since its classification predates and is unrelated to this bug.
+
+**Bug fixes**
+
+- `pytest_plugins` declared in a non-top-level conftest — newer pytest only allows this in the project-root conftest; removed (redundant anyway, since pytest-asyncio auto-registers as a plugin once installed, and every test already uses explicit `@pytest.mark.asyncio`). Suite now collects and runs (was failing collection entirely before).
+- A stale cabinet-deletion test asserted `role="Administrator"` should succeed; the route has always required SuperAdmin — fixed the test, not the route.
+- `.env.vcenter` credentials file was referenced by the sync wrapper script but never actually created, so the nightly job would have failed silently every night; also fixed a password-quoting bug (`&` in the vCenter service-account password was being interpreted as a shell background-job operator when the env file was sourced unquoted).
+
+---
 
 ### v9.0.0 — PaloAlto Check, Merged Check Availability, Granular RBAC, Dashboard Intelligence
 

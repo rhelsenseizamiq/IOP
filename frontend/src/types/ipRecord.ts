@@ -1,14 +1,20 @@
-export type OSType = 'AIX' | 'Linux' | 'Windows' | 'macOS' | 'OpenShift' | 'Unknown';
-export type IPStatus = 'Free' | 'Reserved' | 'In Use';
+export type OSType =
+  | "AIX"
+  | "Linux"
+  | "Windows"
+  | "macOS"
+  | "OpenShift"
+  | "Unknown";
+export type IPStatus = "Free" | "Reserved" | "In Use";
 export type Environment =
-  | 'Production'
-  | 'Staging'
-  | 'UAT'
-  | 'QA'
-  | 'Test'
-  | 'Development'
-  | 'DR'
-  | 'Lab';
+  | "Production"
+  | "Staging"
+  | "UAT"
+  | "QA"
+  | "Test"
+  | "Development"
+  | "DR"
+  | "Lab";
 
 export interface IPRecord {
   id: string;
@@ -18,6 +24,7 @@ export interface IPRecord {
   subnet_id: string;
   status: IPStatus;
   environment: Environment;
+  power_state: "on" | "off" | null;
   owner: string | null;
   description: string | null;
   created_at: string;

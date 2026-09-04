@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import {
   Row,
   Col,
@@ -31,6 +32,7 @@ import {
   WifiOutlined,
   ScanOutlined,
   DiffOutlined,
+  ClusterOutlined,
 } from "@ant-design/icons";
 import {
   PieChart,
@@ -62,13 +64,14 @@ import DuplicatesModal from "../../components/common/DuplicatesModal";
 dayjs.extend(relativeTime);
 
 // Nightly cron: Device42 @ 02:00 UTC, Zabbix @ 02:35 UTC, PaloAlto @ 02:50
-// UTC. Flag as stale past 27h so a single missed/delayed run doesn't
-// false-alarm before the next one.
+// UTC, vCenter @ 03:10 UTC. Flag as stale past 27h so a single
+// missed/delayed run doesn't false-alarm before the next one.
 const SYNC_STALE_HOURS = 27;
 const SYNC_SOURCE_LABEL: Record<string, string> = {
   device42: "Device42",
   zabbix: "Zabbix",
   paloalto: "PaloAlto",
+  vcenter: "vCenter",
 };
 
 // ── Minimal 3-colour palette ─────────────────────────────────────────────────
@@ -78,8 +81,10 @@ const ERR = "#e57373";
 const DIM = "rgba(255,255,255,0.35)";
 const CHART = [
   ACCENT,
+  "rgba(99,226,183,0.7)",
   "rgba(99,226,183,0.55)",
-  "rgba(99,226,183,0.3)",
+  "rgba(99,226,183,0.4)",
+  "rgba(99,226,183,0.25)",
   "rgba(255,255,255,0.15)",
 ];
 
@@ -155,9 +160,17 @@ const criticalColumns: ColumnsType<SubnetCritical> = [
   },
 ];
 
+function greetingForHour(hour: number): string {
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { fullName } = useAuth();
+  const firstName = fullName?.split(" ")[0];
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [staleModalOpen, setStaleModalOpen] = useState(false);
@@ -205,12 +218,17 @@ const DashboardPage: React.FC = () => {
   const inUse = stats.status_breakdown["In Use"] ?? 0;
   const utilPct =
     stats.total_ips > 0 ? Math.round((inUse / stats.total_ips) * 100) : 0;
+  // Mongo's $group doesn't guarantee any particular order, so these came
+  // back arbitrary — sorted descending here so the largest bar is always
+  // on top, matching how a horizontal bar chart is normally read.
   const envData = Object.entries(stats.environment_breakdown)
     .filter(([, v]) => v > 0)
-    .map(([name, value]) => ({ name, value }));
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
   const osData = Object.entries(stats.os_breakdown)
     .filter(([, v]) => v > 0)
-    .map(([name, value]) => ({ name, value }));
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
   const v4total = stats.subnet_v4_count + stats.subnet_v6_count;
 
   const STAT_ROWS: {
@@ -277,9 +295,17 @@ const DashboardPage: React.FC = () => {
 
   return (
     <div>
-      <Typography.Title level={4} style={{ marginBottom: 16 }}>
+      <Typography.Title level={4} style={{ marginBottom: firstName ? 0 : 16 }}>
         Dashboard
       </Typography.Title>
+      {firstName && (
+        <Typography.Text
+          type="secondary"
+          style={{ display: "block", marginBottom: 16 }}
+        >
+          {greetingForHour(new Date().getHours())}, {firstName}
+        </Typography.Text>
+      )}
 
       {alerting.length > 0 && (
         <Alert
@@ -333,7 +359,7 @@ const DashboardPage: React.FC = () => {
             }
           >
             <Row gutter={[16, 12]}>
-              {["device42", "zabbix", "paloalto"].map((source) => {
+              {["device42", "zabbix", "paloalto", "vcenter"].map((source) => {
                 const s = stats.sync_status[source];
                 const health = syncHealth(s);
                 const meta = SYNC_HEALTH_META[health];
@@ -425,6 +451,63 @@ const DashboardPage: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* vSphere Power State — only ever set from vCenter (nightly sync or
+          a live Check Availability run), so this only covers whatever
+          vCenter has actually matched, not all IPs. */}
+      {(() => {
+        const on = stats.power_state_breakdown.on ?? 0;
+        const off = stats.power_state_breakdown.off ?? 0;
+        const tracked = on + off;
+        return (
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col span={24}>
+              <Card
+                size="small"
+                title={
+                  <span>
+                    <ClusterOutlined style={{ marginRight: 8 }} />
+                    vSphere Power State
+                  </span>
+                }
+              >
+                {tracked === 0 ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    No vCenter-tracked IPs yet — populated by the nightly
+                    vCenter sync or a Check Availability run.
+                  </Typography.Text>
+                ) : (
+                  <Row gutter={[16, 12]}>
+                    <Col xs={12} sm={6} lg={4}>
+                      <Statistic
+                        title="Powered On"
+                        value={on}
+                        valueStyle={{ color: ACCENT }}
+                      />
+                    </Col>
+                    <Col xs={12} sm={6} lg={4}>
+                      <Statistic
+                        title="Powered Off"
+                        value={off}
+                        valueStyle={{ color: off > 0 ? ERR : DIM }}
+                      />
+                    </Col>
+                    <Col xs={24} sm={12} lg={16}>
+                      <Typography.Text
+                        type="secondary"
+                        style={{ fontSize: 12 }}
+                      >
+                        {tracked} of {stats.total_ips} IPs are vSphere-tracked
+                        VMs.
+                      </Typography.Text>
+                    </Col>
+                  </Row>
+                )}
+              </Card>
+            </Col>
+          </Row>
+        );
+      })()}
 
       {/* PaloAlto Activity — real-time Check Availability lookups, distinct
           from the nightly full-inventory sync shown above */}
@@ -544,9 +627,10 @@ const DashboardPage: React.FC = () => {
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 {stats.stale_in_use.count} record
                 {stats.stale_in_use.count === 1 ? "" : "s"} marked In Use
-                haven&apos;t been re-confirmed by Device42, Zabbix, PaloAlto, or
-                a manual check in over {stats.stale_in_use.threshold_days} days.
-                Nothing has been changed — worth a manual look.
+                haven&apos;t been re-confirmed by Device42, Zabbix, PaloAlto,
+                vSphere, or a manual check in over{" "}
+                {stats.stale_in_use.threshold_days} days. Nothing has been
+                changed — worth a manual look.
               </Typography.Text>
               <div
                 style={{
@@ -693,11 +777,17 @@ const DashboardPage: React.FC = () => {
         onClose={() => setDuplicatesModalOpen(false)}
       />
 
-      {/* Charts row */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 16, marginTop: 4 }}>
+      {/* Charts row — align="stretch" + height:100% on each Card so the
+          three panels line up evenly even though their content heights
+          differ (donut+legend vs. stat tiles vs. gauge+row). */}
+      <Row
+        gutter={[16, 16]}
+        align="stretch"
+        style={{ marginBottom: 16, marginTop: 4 }}
+      >
         {/* Donut */}
         <Col xs={24} lg={8}>
-          <Card title="IP Status">
+          <Card title="IP Status" style={{ height: "100%" }}>
             <ResponsiveContainer width="100%" height={210}>
               <PieChart>
                 <Pie
@@ -736,7 +826,7 @@ const DashboardPage: React.FC = () => {
 
         {/* IPv4/IPv6 breakdown */}
         <Col xs={24} lg={8}>
-          <Card title="IPv4 vs IPv6">
+          <Card title="IPv4 vs IPv6" style={{ height: "100%" }}>
             <Row gutter={[8, 8]}>
               {[
                 { label: "IPv4 Subnets", value: stats.subnet_v4_count },
@@ -807,7 +897,7 @@ const DashboardPage: React.FC = () => {
 
         {/* Utilization gauge */}
         <Col xs={24} lg={8}>
-          <Card title="Overall IP Utilization">
+          <Card title="Overall IP Utilization" style={{ height: "100%" }}>
             <div
               style={{
                 display: "flex",
@@ -870,7 +960,7 @@ const DashboardPage: React.FC = () => {
               <BarChart
                 data={envData}
                 layout="vertical"
-                margin={{ left: 8, right: 40 }}
+                margin={{ left: 8, right: 56 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -904,7 +994,7 @@ const DashboardPage: React.FC = () => {
               <BarChart
                 data={osData}
                 layout="vertical"
-                margin={{ left: 8, right: 40 }}
+                margin={{ left: 8, right: 56 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"

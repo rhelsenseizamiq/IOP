@@ -599,8 +599,8 @@ class PingResult(BaseModel):
 
 
 # Real, currently-mounted host NICs the scan helper can bind to, plus the
-# three real-time inventory lookups (Device42, Zabbix, PaloAlto).
-_VALID_SCAN_SOURCES = {"ens192", "ens224", "device42", "zabbix", "paloalto"}
+# four real-time inventory lookups (Device42, Zabbix, PaloAlto, vSphere).
+_VALID_SCAN_SOURCES = {"ens192", "ens224", "device42", "zabbix", "paloalto", "vsphere"}
 _HOST_NIC_SOURCES = {"ens192", "ens224"}
 
 
@@ -692,6 +692,66 @@ async def _zabbix_lookup(target_ip: str) -> tuple[bool, Optional[str], Optional[
         raise RuntimeError("Zabbix not configured (ZABBIX_HOST/ZABBIX_TOKEN missing)")
 
     return await ZabbixService.lookup_ip(host=host, token=token, target_ip=target_ip)
+
+
+async def _vsphere_lookup(target_ip: str) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
+    """Real-time vCenter inventory lookup for one IP, across every
+    configured vCenter (checked concurrently, same as PaloAlto's multi-host
+    pattern). Returns (found, guest_hostname, os_type, power_state) from
+    the first vCenter that reports a match. guest_hostname is the DNS name
+    VMware Tools reports inside the guest — see _apply_combined_check for
+    how it can enrich the IP record's hostname field. power_state ("on" /
+    "off") lets the caller distinguish a VM that exists but is shut down
+    from not being found at all, instead of collapsing both into False."""
+    from app.config import get_settings
+    from app.services.vsphere_service import VsphereService
+
+    settings = get_settings()
+    hosts = [h.strip() for h in (settings.VCENTER_HOSTS or "").split(",") if h.strip()]
+    if not hosts or not settings.VCENTER_USERNAME:
+        raise RuntimeError("vSphere not configured (VCENTER_HOSTS/VCENTER_USERNAME missing)")
+
+    results = await asyncio.gather(
+        *(
+            VsphereService.lookup_ip(
+                host=host,
+                username=settings.VCENTER_USERNAME,
+                password=settings.VCENTER_PASSWORD,
+                target_ip=target_ip,
+                verify_ssl=settings.VCENTER_VERIFY_SSL,
+            )
+            for host in hosts
+        ),
+        return_exceptions=True,
+    )
+
+    errors: list[str] = []
+    for host, result in zip(hosts, results):
+        if isinstance(result, Exception):
+            errors.append(f"{host}: {result}")
+            continue
+        found, hostname, os_type, power_state = result
+        if found:
+            return True, hostname, os_type, power_state
+
+    if errors and len(errors) == len(hosts):
+        raise RuntimeError("; ".join(errors))
+    return False, None, None, None
+
+
+def _vsphere_display_name(name: Optional[str], power_state: Optional[str]) -> Optional[str]:
+    """Annotates a vSphere match's progress-event label with its power
+    state, explicit either way, so the UI shows 'Found — mail01 (running)'
+    or 'Found — mail01 (powered off)' instead of implying a bare "Found"
+    means the VM is live on the network."""
+    if not name and power_state is None:
+        return None
+    label = name or "unknown"
+    if power_state == "off":
+        return f"{label} (powered off)"
+    if power_state == "on":
+        return f"{label} (running)"
+    return label
 
 
 async def _paloalto_full_check(target_ip: str, current_user: UserInToken, source: str):
@@ -937,23 +997,37 @@ async def _apply_combined_check(
     zabbix_name: Optional[str],
     zabbix_os: Optional[str],
     paloalto_result,
+    vsphere_found: bool,
+    vsphere_name: Optional[str],
+    vsphere_os: Optional[str],
+    vsphere_power_state: Optional[str],
     auto_update: bool,
 ) -> tuple[bool, Optional[str], Optional[str], Optional[str]]:
-    """Merged Check Availability: combines Device42 + Zabbix + PaloAlto
-    findings into ONE update instead of three separate ones. Any positive
-    finding can upgrade the record to In Use; nothing here ever
+    """Merged Check Availability: combines Device42 + Zabbix + PaloAlto +
+    vSphere findings into ONE update instead of four separate ones. Any
+    positive finding can upgrade the record to In Use; nothing here ever
     auto-downgrades to Free (absence of evidence isn't evidence of
     absence) and Reserved is never auto-released — same asymmetric rule as
-    every individual source. If PaloAlto found it, hostname is enriched
-    from its data (the richest source); OS type prefers Device42 (the
-    canonical inventory) over Zabbix when both report one; the description
-    always summarizes which source(s) actually found it, for transparency.
-    Returns (status_updated, new_status, hostname_applied, os_type_applied).
-    """
+    every individual source. The one exception: a vSphere match on a
+    POWERED-OFF VM is real evidence the address exists in inventory, but
+    not evidence it's currently in use on the network, so on its own it
+    does NOT count toward any_found/the status flip — it's still listed
+    in the description (annotated "powered off") for visibility whenever
+    something else did trigger an update. Hostname prefers PaloAlto's data
+    (an address object/NAT/security-rule name) when it has one; vSphere's
+    guest DNS name (what VMware Tools reports inside the guest — a
+    genuinely authoritative source, since it comes straight from the OS)
+    fills in whenever PaloAlto didn't provide a name, powered off or not.
+    OS type prefers Device42 (the canonical inventory), then Zabbix, then
+    vSphere (a best-effort guess from guestFullName, least authoritative);
+    the description always summarizes which source(s) actually found it,
+    for transparency. Returns (status_updated, new_status,
+    hostname_applied, os_type_applied)."""
     from app.models.audit_log import AuditAction, ResourceType
 
     paloalto_found = bool(paloalto_result and paloalto_result.found)
-    any_found = device42_found or zabbix_found or paloalto_found
+    vsphere_powered_on = vsphere_found and vsphere_power_state != "off"
+    any_found = device42_found or zabbix_found or paloalto_found or vsphere_powered_on
 
     if not auto_update or not any_found:
         return False, None, None, None
@@ -965,6 +1039,11 @@ async def _apply_combined_check(
         sources.append(f"Zabbix ({zabbix_name or 'unknown'})")
     if paloalto_found:
         sources.append("PaloAlto")
+    if vsphere_found:
+        vsphere_label = vsphere_name or "unknown"
+        if vsphere_power_state == "off":
+            vsphere_label += " — powered off"
+        sources.append(f"vSphere ({vsphere_label})")
     description = f"Check Availability: found via {', '.join(sources)}"
 
     hostname = None
@@ -972,14 +1051,18 @@ async def _apply_combined_check(
         hostname = paloalto_result.hostname or (
             paloalto_result.matches[0].address_name if paloalto_result.matches else None
         )
+    if not hostname and vsphere_found and vsphere_name:
+        hostname = vsphere_name
 
-    os_type = device42_os or zabbix_os
+    os_type = device42_os or zabbix_os or vsphere_os
 
     update_fields: dict = {"updated_by": current_user.sub, "description": description}
     if hostname and hostname != record.hostname:
         update_fields["hostname"] = hostname
     if os_type and os_type != record.os_type.value:
         update_fields["os_type"] = os_type
+    if vsphere_found and vsphere_power_state and vsphere_power_state != record.power_state:
+        update_fields["power_state"] = vsphere_power_state
 
     target_status = "In Use"
     status_changed = record.status.value not in ("Reserved", target_status)
@@ -1001,6 +1084,7 @@ async def _apply_combined_check(
             "status": record.status.value,
             "hostname": record.hostname,
             "os_type": record.os_type.value,
+            "power_state": record.power_state,
             "description": record.description,
         },
         after={k: v for k, v in update_fields.items() if k != "updated_by"},
@@ -1022,18 +1106,20 @@ async def _combined_check_events(
     auto_update: bool,
     result_holder: Optional[dict] = None,
 ):
-    """Shared SSE generator: scans Device42, then Zabbix, then PaloAlto in
-    sequence for one existing IP record, then applies _apply_combined_check.
-    Yields 'progress' events per source, then either an 'error' event (and
-    stops) or a final 'result' event. Does NOT yield 'complete' — the caller
-    owns the stream's lifecycle, since a bulk caller needs to run this once
-    per record before emitting its own summary+complete.
+    """Shared SSE generator: scans Device42, then Zabbix, then PaloAlto, then
+    vSphere in sequence for one existing IP record, then applies
+    _apply_combined_check. Yields 'progress' events per source, then either
+    an 'error' event (and stops) or a final 'result' event. Does NOT yield
+    'complete' — the caller owns the stream's lifecycle, since a bulk
+    caller needs to run this once per record before emitting its own
+    summary+complete.
     If result_holder is given, it's populated in place with the final result
     dict on success (left empty on error) so a bulk caller can tally
     outcomes without re-parsing the SSE text."""
-    device42_found = zabbix_found = False
-    device42_name = zabbix_name = None
-    device42_os = zabbix_os = None
+    device42_found = zabbix_found = vsphere_found = False
+    device42_name = zabbix_name = vsphere_name = None
+    device42_os = zabbix_os = vsphere_os = None
+    vsphere_power_state = None
     paloalto_result = None
     ip = record.ip_address
 
@@ -1062,23 +1148,39 @@ async def _combined_check_events(
     except Exception as exc:
         yield f"event: progress\ndata: {json.dumps({'source': 'paloalto', 'status': 'error', 'message': str(exc)})}\n\n"
 
+    yield f"event: progress\ndata: {json.dumps({'source': 'vsphere', 'status': 'checking'})}\n\n"
+    try:
+        vsphere_found, vsphere_name, vsphere_os, vsphere_power_state = await _vsphere_lookup(ip)
+        yield (
+            f"event: progress\ndata: "
+            f"{json.dumps({'source': 'vsphere', 'status': 'done', 'found': vsphere_found, 'name': _vsphere_display_name(vsphere_name, vsphere_power_state)})}"
+            f"\n\n"
+        )
+    except Exception as exc:
+        yield f"event: progress\ndata: {json.dumps({'source': 'vsphere', 'status': 'error', 'message': str(exc)})}\n\n"
+
     try:
         status_updated, new_status, hostname, os_type = await _apply_combined_check(
             record, id, current_user, request,
             device42_found, device42_name, device42_os,
             zabbix_found, zabbix_name, zabbix_os,
-            paloalto_result, auto_update,
+            paloalto_result,
+            vsphere_found, vsphere_name, vsphere_os, vsphere_power_state,
+            auto_update,
         )
     except Exception as exc:
         yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
         return
 
-    found = device42_found or zabbix_found or bool(paloalto_result and paloalto_result.found)
+    vsphere_powered_on = vsphere_found and vsphere_power_state != "off"
+    found = device42_found or zabbix_found or vsphere_powered_on or bool(paloalto_result and paloalto_result.found)
     result = {
         "ip_address": ip, "found": found, "status_updated": status_updated,
         "new_status": new_status, "hostname": hostname, "os_type": os_type,
         "device42_found": device42_found, "zabbix_found": zabbix_found,
         "paloalto_found": bool(paloalto_result and paloalto_result.found),
+        "vsphere_found": vsphere_found,
+        "vsphere_power_state": vsphere_power_state,
     }
     if result_holder is not None:
         result_holder.update(result)
@@ -1095,8 +1197,8 @@ async def bulk_check_availability_stream(
     auto_update: bool = Body(default=True, embed=True),
     current_user: UserInToken = Depends(_ADMIN_ONLY),
 ) -> StreamingResponse:
-    """Bulk Check Availability — runs the same Device42 → Zabbix → PaloAlto
-    merged scan (_combined_check_events) sequentially over a list of
+    """Bulk Check Availability — runs the same Device42 → Zabbix → PaloAlto →
+    vSphere merged scan (_combined_check_events) sequentially over a list of
     existing IP records, applying the same asymmetric auto-update rule to
     each independently. Powers 'Bulk Scan' from the Duplicates and Stale
     In-Use Records dashboard panels. A failure on one record (e.g. it was
@@ -1171,12 +1273,12 @@ async def check_availability_stream(
     current_user: UserInToken = Depends(_ADMIN_ONLY),
 ) -> StreamingResponse:
     """Merged Check Availability — scans Device42, then Zabbix, then
-    PaloAlto in sequence for an existing IP record (Server-Sent Events),
-    emitting a progress event before and after each source so the UI can
-    show 'scanning Device42… found/not found', then Zabbix, then PaloAlto.
-    Once all three finish, the record's status (and, if PaloAlto found it,
-    hostname) are updated immediately — see _apply_combined_check for the
-    exact rule."""
+    PaloAlto, then vSphere in sequence for an existing IP record
+    (Server-Sent Events), emitting a progress event before and after each
+    source so the UI can show 'scanning Device42… found/not found', then
+    Zabbix, then PaloAlto, then vSphere. Once all four finish, the record's
+    status (and, if PaloAlto found it, hostname) are updated immediately —
+    see _apply_combined_check for the exact rule."""
     service = _build_service()
     record = await service.get_by_id(id)
 
@@ -1198,7 +1300,7 @@ async def check_availability_stream_by_ip(
     ip_address: str = Body(..., embed=True),
     current_user: UserInToken = Depends(_ADMIN_ONLY),
 ) -> StreamingResponse:
-    """Same merged Device42 → Zabbix → PaloAlto scan as
+    """Same merged Device42 → Zabbix → PaloAlto → vSphere scan as
     /{id}/check-availability-stream, for an address that has no IP record
     yet (Unused IPs page) — informational only, nothing to update."""
     try:
@@ -1210,8 +1312,8 @@ async def check_availability_stream_by_ip(
         ) from exc
 
     async def event_stream():
-        device42_found = zabbix_found = paloalto_found = False
-        device42_name = zabbix_name = paloalto_name = None
+        device42_found = zabbix_found = paloalto_found = vsphere_found = False
+        device42_name = zabbix_name = paloalto_name = vsphere_name = None
 
         yield f"event: progress\ndata: {json.dumps({'source': 'device42', 'status': 'checking'})}\n\n"
         try:
@@ -1234,10 +1336,23 @@ async def check_availability_stream_by_ip(
         except Exception as exc:
             yield f"event: progress\ndata: {json.dumps({'source': 'paloalto', 'status': 'error', 'message': str(exc)})}\n\n"
 
-        found = device42_found or zabbix_found or paloalto_found
+        yield f"event: progress\ndata: {json.dumps({'source': 'vsphere', 'status': 'checking'})}\n\n"
+        vsphere_power_state = None
+        try:
+            vsphere_found, vsphere_name, _, vsphere_power_state = await _vsphere_lookup(ip_address)
+            yield (
+                f"event: progress\ndata: "
+                f"{json.dumps({'source': 'vsphere', 'status': 'done', 'found': vsphere_found, 'name': _vsphere_display_name(vsphere_name, vsphere_power_state)})}"
+                f"\n\n"
+            )
+        except Exception as exc:
+            yield f"event: progress\ndata: {json.dumps({'source': 'vsphere', 'status': 'error', 'message': str(exc)})}\n\n"
+
+        vsphere_powered_on = vsphere_found and vsphere_power_state != "off"
+        found = device42_found or zabbix_found or paloalto_found or vsphere_powered_on
         yield (
             f"event: result\ndata: "
-            f"{json.dumps({'ip_address': ip_address, 'found': found, 'device42_found': device42_found, 'zabbix_found': zabbix_found, 'paloalto_found': paloalto_found})}"
+            f"{json.dumps({'ip_address': ip_address, 'found': found, 'device42_found': device42_found, 'zabbix_found': zabbix_found, 'paloalto_found': paloalto_found, 'vsphere_found': vsphere_found, 'vsphere_power_state': vsphere_power_state})}"
             f"\n\n"
         )
         yield "event: complete\ndata: {}\n\n"

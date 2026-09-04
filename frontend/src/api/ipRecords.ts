@@ -139,7 +139,7 @@ export interface DuplicatesResult {
 // combined result immediately.
 
 export interface CheckAvailabilityProgressEvent {
-  source: "device42" | "zabbix" | "paloalto";
+  source: "device42" | "zabbix" | "paloalto" | "vsphere";
   status: "checking" | "done" | "error";
   found?: boolean;
   name?: string | null;
@@ -156,6 +156,8 @@ export interface CheckAvailabilityResult {
   device42_found: boolean;
   zabbix_found: boolean;
   paloalto_found: boolean;
+  vsphere_found: boolean;
+  vsphere_power_state?: string | null;
 }
 
 export interface CheckAvailabilityHandlers {

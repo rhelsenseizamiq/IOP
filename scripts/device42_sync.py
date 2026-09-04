@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.core.database import connect_to_mongo, close_mongo_connection, get_database
+from app.core.environment_heuristics import looks_like_test
 from app.repositories.subnet_repository import SubnetRepository
 from app.repositories.ip_record_repository import IPRecordRepository
 
@@ -72,7 +73,7 @@ def subnet_environment(service_level):
 
 
 def ip_environment(hostname, subnet_default_env):
-    if hostname and "test" in hostname.lower():
+    if looks_like_test(hostname):
         return "Test"
     return subnet_default_env
 

@@ -35,6 +35,7 @@ import time
 from datetime import datetime, timezone
 
 from app.core.database import connect_to_mongo, close_mongo_connection, get_database
+from app.core.environment_heuristics import looks_like_test
 from app.repositories.subnet_repository import SubnetRepository
 from app.repositories.ip_record_repository import IPRecordRepository
 from app.services.paloalto_service import PaloAltoService
@@ -53,7 +54,7 @@ PALOALTO_PASSWORD = os.environ["PALOALTO_PASSWORD"]
 
 
 def environment_for(name: str | None) -> str:
-    if name and "test" in name.lower():
+    if looks_like_test(name):
         return "Test"
     return "Production"
 

@@ -579,6 +579,22 @@ const IPRecordsPage: React.FC = () => {
       render: (v: IPStatus) => <StatusBadge status={v} />,
     },
     {
+      title: "Power",
+      dataIndex: "power_state",
+      key: "power_state",
+      width: 90,
+      // Only ever set from vSphere (nightly sync or a live Check
+      // Availability) — stays "—" for anything vCenter has never matched.
+      render: (v: "on" | "off" | null) =>
+        v === "on" ? (
+          <Tag color="green">On</Tag>
+        ) : v === "off" ? (
+          <Tag color="red">Off</Tag>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
+    },
+    {
       title: "Environment",
       dataIndex: "environment",
       key: "environment",

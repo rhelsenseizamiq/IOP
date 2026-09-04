@@ -14,11 +14,6 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-# ---------------------------------------------------------------------------
-# Event loop configuration (required for pytest-asyncio >= 0.21 in "auto" mode)
-# ---------------------------------------------------------------------------
-pytest_plugins = ("pytest_asyncio",)
-
 
 @pytest.fixture(scope="session")
 def event_loop_policy():

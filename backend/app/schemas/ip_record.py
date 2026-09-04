@@ -53,6 +53,7 @@ class IPRecordResponse(BaseModel):
     subnet_id: str
     status: IPStatus
     environment: Environment
+    power_state: Optional[str] = None
     owner: Optional[str]
     description: Optional[str]
     created_at: datetime
