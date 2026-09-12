@@ -4,6 +4,14 @@ A self-hosted IP Address Management portal with NetBox-style prefix hierarchy, d
 
 ---
 
+## 📐 Architecture
+
+![IOP Detailed Architecture Diagram](docs/iop_detailed_architecture_diagram.jpg)
+
+> For full architectural details, sequence workflows, security matrix, and database schemas, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+---
+
 ## Stack
 
 | Layer | Technology |
