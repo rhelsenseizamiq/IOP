@@ -8,7 +8,13 @@ from app.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
 
-_SENSITIVE_KEYS = frozenset({"password_hash", "password", "ciphertext", "iv"})
+_SENSITIVE_KEYS = frozenset({
+    "password_hash", "password", "ciphertext", "iv",
+    # File sharing (see app/services/file_service.py / share_service.py) —
+    # encryption keys and raw share tokens must never land in an audit
+    # record's before/after payload.
+    "wrapped_dek", "dek_iv", "file_iv", "token",
+})
 
 
 def _strip_sensitive(data: Optional[dict]) -> Optional[dict]:

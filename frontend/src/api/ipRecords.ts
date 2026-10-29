@@ -1,5 +1,6 @@
 import apiClient from "./client";
 import { readSSE } from "./integrations";
+import { downloadBlob } from "../utils/downloadBlob";
 import type { AuditLog } from "../types/auditLog";
 import type {
   IPRecord,
@@ -21,16 +22,6 @@ export interface BulkUpdateFields {
 export interface ImportResult {
   imported: number;
   errors: { row: number; ip: string; error: string }[];
-}
-
-/** Trigger a CSV download from a Blob response */
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 export const ipRecordsApi = {

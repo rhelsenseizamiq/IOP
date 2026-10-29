@@ -56,8 +56,14 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Role comes from the DB doc (already fetched above for the is_active
+    # check, so this is free — no extra round trip), not the JWT claim.
+    # The claim is frozen at token-issue time: if an admin demotes a user
+    # mid-session, a role taken from the token would keep granting the OLD
+    # privilege level until the token expires (up to JWT_EXPIRE_MINUTES).
+    # See security review 2026-10-29.
     try:
-        role = Role(role_str)
+        role = Role(user_doc.get("role", role_str))
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

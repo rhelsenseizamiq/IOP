@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException, Response, status
@@ -21,6 +21,21 @@ from app.schemas.auth import TokenResponse
 logger = logging.getLogger(__name__)
 
 REFRESH_COOKIE_NAME = "ipam_refresh"
+
+# Account-level brute-force lockout — independent of the per-IP rate limit
+# on the login route (that alone doesn't stop a slow or distributed-source
+# guess against one specific account). See security review 2026-10-29.
+_MAX_FAILED_LOGIN_ATTEMPTS = 5
+_LOCKOUT_DURATION = timedelta(minutes=15)
+
+# Precomputed once at import time (one bcrypt(12) call, negligible at
+# startup) — verified against on every "account doesn't exist / inactive /
+# locked" rejection so those paths take the same time as a real wrong-
+# password check below. Without this, a nonexistent username answers ~4x
+# faster than an existing one (no bcrypt call ran at all), which is a
+# measurable, confirmed username-enumeration timing side-channel — see
+# security review 2026-10-29.
+_DUMMY_PASSWORD_HASH = hash_password("dummy-timing-safety-constant-do-not-use")
 
 
 class AuthService:
@@ -79,9 +94,18 @@ class AuthService:
                     )
                 # Fall through to token generation below
             elif user is None:
-                # Unknown user — try LDAP auto-provision
+                # Unknown user — try LDAP auto-provision. This is the path a
+                # TRULY nonexistent username actually takes when LDAP is
+                # enabled (confirmed in prod: LDAP_ENABLED=true here) — the
+                # "Local auth path" dummy-hash padding further down never
+                # even runs for this case, since this branch already raises
+                # first. A failed LDAP bind attempt responds in a different,
+                # LDAP-server-dependent time than a real bcrypt check, so pad
+                # it the same way for timing parity with an existing local
+                # account's wrong-password response.
                 ldap_attrs = await self._try_ldap_auth(username, password, settings)
                 if ldap_attrs is None:
+                    verify_password(password, _DUMMY_PASSWORD_HASH)
                     await self._audit.log(
                         action=AuditAction.LOGIN_FAILED,
                         resource_type=ResourceType.AUTH,
@@ -131,6 +155,10 @@ class AuthService:
 
         # ── Local auth path ────────────────────────────────────────────────
         if user is None or not user.is_active:
+            # Normalize timing with the real wrong-password path below —
+            # otherwise this branch returns ~4x faster (no bcrypt call ran),
+            # which is a confirmed username-enumeration side-channel.
+            verify_password(password, _DUMMY_PASSWORD_HASH)
             await self._audit.log(
                 action=AuditAction.LOGIN_FAILED,
                 resource_type=ResourceType.AUTH,
@@ -144,16 +172,41 @@ class AuthService:
                 detail="Invalid username or password",
             )
 
+        if user.locked_until and datetime.now(timezone.utc) < user.locked_until:
+            verify_password(password, _DUMMY_PASSWORD_HASH)  # timing parity, see above
+            await self._audit.log(
+                action=AuditAction.LOGIN_FAILED,
+                resource_type=ResourceType.AUTH,
+                username=username,
+                user_role=user.role.value,
+                client_ip=client_ip,
+                detail=f"Login blocked: account '{username}' is temporarily locked",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account temporarily locked due to repeated failed login attempts. Try again later.",
+            )
+
         # Only verify password for local users
         if getattr(user, "auth_type", "local") == "local":
             if not verify_password(password, user.password_hash):
+                new_count = user.failed_login_count + 1
+                update_fields: dict = {"failed_login_count": new_count}
+                now_locked = new_count >= _MAX_FAILED_LOGIN_ATTEMPTS
+                if now_locked:
+                    update_fields["locked_until"] = datetime.now(timezone.utc) + _LOCKOUT_DURATION
+                    update_fields["failed_login_count"] = 0
+                await self._users.update(user.id, update_fields)
                 await self._audit.log(
                     action=AuditAction.LOGIN_FAILED,
                     resource_type=ResourceType.AUTH,
                     username=username,
                     user_role=user.role.value,
                     client_ip=client_ip,
-                    detail=f"Login failed: incorrect password for username '{username}'",
+                    detail=(
+                        f"Login failed: incorrect password for username '{username}'"
+                        + (" — account now locked" if now_locked else "")
+                    ),
                 )
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -168,8 +221,15 @@ class AuthService:
         )
         refresh_token = create_refresh_token(username=user.username, settings=settings)
 
-        # Update last_login timestamp
-        await self._users.update(user.id, {"last_login": datetime.now(timezone.utc)})
+        # Update last_login timestamp and clear any lockout state
+        await self._users.update(
+            user.id,
+            {
+                "last_login": datetime.now(timezone.utc),
+                "failed_login_count": 0,
+                "locked_until": None,
+            },
+        )
 
         await self._audit.log(
             action=AuditAction.LOGIN,

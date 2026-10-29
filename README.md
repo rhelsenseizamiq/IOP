@@ -2,6 +2,8 @@
 
 A self-hosted IP Address Management portal with NetBox-style prefix hierarchy, dual-stack IPv4/IPv6, Device42 & Zabbix & PaloAlto integrations (with nightly automated sync), a real-time PaloAlto Check page (trace log, 30-day check + traffic history), merged multi-source Check Availability with OS/hostname auto-enrichment, duplicate detection with bulk re-verification, a human-friendly Unused IP Addresses view, infrastructure network scanning, granular role-based access control, Password Vault with folder organisation and secure sharing, and optional LDAP/AD authentication.
 
+> **⚠ Deployment warning (as of v9.5.2, unresolved):** the built `iop-api` Docker image is stale (April) and missing the entire AI Assistant feature — it has only ever been deployed via `docker cp` onto the *running* container. `docker restart iop-api` is safe (preserves the writable layer). **`docker compose up`/recreate/pull for the `api` service is NOT safe** — it reverts to the stale image and silently deletes the AI Assistant code. If you must recreate it, immediately re-sync `/opt/IOP/backend/app` into the fresh container afterward. See the v9.5.2 changelog entry for full detail and the proper fix (image rebuild — currently blocked, this host has no working path to pull the base image).
+
 ---
 
 ## 📐 Architecture
@@ -66,6 +68,9 @@ docker compose build frontend api && docker compose up -d frontend api
 | `LDAP_BASE_DN` | — | Search base (e.g. `DC=corp,DC=example,DC=com`) |
 | `LDAP_USER_FILTER` | `(sAMAccountName={username})` | User search filter |
 | `LDAP_DEFAULT_ROLE` | `Viewer` | Role for auto-provisioned LDAP users |
+| `OLLAMA_URL` | `http://172.18.0.1:11434` | Offline AI assistant's Ollama server — the `iop-external` Docker bridge's own gateway address (never a public port; see "Offline AI Assistant") |
+| `OLLAMA_CHAT_MODEL` | `iop-llama3.1` | Ollama model name for `/assistant/ask` |
+| `OLLAMA_EMBED_MODEL` | `iop-nomic-embed` | Ollama model name for embeddings/semantic search |
 
 > **Security note:** Never put `MONGO_ROOT_USER` / `MONGO_ROOT_PASSWORD` in the same `.env` file loaded by the API container. Use a separate file for the database service only (see `.env.api` vs `.env`).
 
@@ -124,6 +129,7 @@ Discover/Import actions.
 - **PaloAlto** — PAN-OS XML API: address objects, interface IPs, ARP table. Discover/Import here is bulk, one-time; see **PaloAlto Check** below for real-time single-IP/subnet lookups.
 - **vSphere** — vCenter VM discovery via pyVmomi. Manual Discover/Import (per-request host/credentials, SuperAdmin-only) for bulk one-time imports, same as this section's other sources. Also a 4th real-time **Check Availability** source and a **nightly sync** — see below.
 - **DNS conflict detection** — FORWARD_MISMATCH, PTR_MISMATCH, NO_FORWARD, DUPLICATE_HOSTNAME
+- **Offline AI Assistant** — local LLM (no data leaves this server) answering questions about subnet inventory, grounded in this IPAM's own data. See dedicated section below.
 
 > **RBAC note:** Discover/Import on this page is **SuperAdmin-only** — Operator and Administrator can open the page and see the cards, but the action buttons are disabled. This is intentional (see User Roles above).
 
@@ -137,8 +143,8 @@ A dedicated page (`/paloalto-check`, Operator+) for on-demand PaloAlto lookups �
 - **30-day PAN-OS traffic logs** — pulls PaloAlto's own historical traffic/session log entries for an address directly from the firewall (async job submission + polling) — genuine evidence of real recent network activity, distinct from IPAM's own check-history above.
 - **Subnets → right-click → Scan in PaloAlto** — bulk-checks every host address in a subnet with a live progress bar + trace log, auto-saves found addresses, refreshes utilization, and surfaces the **top security/NAT rules** actually referencing addresses in that subnet (reused from the scan's own match data — no extra PAN-OS calls).
 
-#### Nightly automated sync (Device42 + Zabbix + PaloAlto + vCenter)
-All four run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
+#### Nightly automated sync (Device42 + Zabbix + PaloAlto + vCenter + AI index + digest)
+All six run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
 
 | Time | Job | Typical duration |
 |---|---|---|
@@ -146,6 +152,8 @@ All four run unattended via cron on the host (`ansible` user), independent of an
 | 2:35 AM | Zabbix full sync | ~2-5 sec (~475 hosts) |
 | 2:50 AM | PaloAlto full sync | ~25-30 sec (across configured firewalls) |
 | 3:10 AM | vCenter full sync | ~35 sec (~1,230 VMs across both vCenters) |
+| 3:30 AM | AI assistant index (subnets only) | first backfill: hours (see below); nightly after that: minutes |
+| 3:40 AM | Daily anomaly digest | ~1-3 min (at most one short LLM call) |
 
 Device42 sets the baseline status from its own inventory `available` flag; Zabbix, PaloAlto, and vCenter run after and **only ever write `"In Use"`** (upgrade on live positive evidence, or skip) — neither can undo a correct Device42-derived `Free`, and none touches a `Reserved` record, so no job can produce conflicting data even if a run window ever grows to overlap. Zabbix hosts that are disabled *and* have no monitoring data in the last 6 months are treated as likely decommissioned and skipped entirely. PaloAlto's nightly sync only imports named single-host (`/32`) address objects — the closest equivalent to Device42's curated inventory — deliberately ignoring the live ARP table and wider-subnet objects (too noisy for an automated job; still available via the manual Discover/Import flow). All wrapper scripts (`scripts/run_device42_sync.sh`, `scripts/run_zabbix_sync.sh`, `scripts/run_paloalto_sync.sh`, `scripts/run_vcenter_sync.sh`) use a lock file that auto-clears after 2 hours if a prior run was killed by a crash/reboot, so a stuck lock can't silently block every future run. See `scripts/README.md` for the full operational writeup.
 
@@ -155,6 +163,26 @@ Device42 sets the baseline status from its own inventory `available` flag; Zabbi
 - **Power state** — `"on"`/`"off"`, surfaced as its own column on IP Records and the Network Scanner review table, and as a Dashboard panel. The nightly batch only ever sets `"on"` (powered-off VMs are skipped entirely); a live Check Availability run is what can later observe and record `"off"`.
 - **Environment → DR** — auto-tagged **only** when the VM's own vCenter datacenter/cluster name genuinely says so (whole-word `dr`/`disaster`, so it doesn't collide with vSphere's own "DRS" cluster feature name). Deliberately does **not** infer DR from which vCenter a VM was discovered on — an earlier version treated every VM on the Baku site's vCenter as DR, which broke on real shared workloads that vCenter also hosts (e.g. an NTP `timeserver`). On an existing record this only ever *promotes* to DR, never overwrites a weaker classification.
 - Template VMs and generic template-named hosts are not filtered out today — a real vCenter template that's powered on with an IP will sync like any other VM; worth a policy decision if that turns out to be noisy.
+
+#### Offline AI Assistant (`/assistant`, Viewer+)
+
+A local LLM chat/search assistant — no data ever leaves this server. Two small models run via **Ollama as a native systemd service on the host** (not in Docker — the server has no outbound internet, so the `ollama/ollama` image couldn't be pulled there; the binary was transferred and installed directly instead), bound only to `172.18.0.1:11434` (the `iop-external` Docker bridge's own gateway address) — reachable from `iop-api`, unreachable from `ens192`/`ens224` or anywhere outside the host.
+
+- **`iop-llama3.1`** (Llama 3.1 8B Instruct, Q4_K_M) — answers questions, grounded only in retrieved context; explicitly told to say so rather than guess when the context doesn't have the answer.
+- **`iop-nomic-embed`** (nomic-embed-text) — turns a short record blurb into a 768-dim vector for semantic search. Embeddings are L2-normalized at write time so a plain dot product *is* cosine similarity — similarity search runs entirely as a MongoDB aggregation (`$zip`/`$map`/`$multiply`/`$sum`) in `embedding_repository.py`, with no vector-database dependency (the running container's image can't be rebuilt on this no-internet host, so any new Python package has to be avoidable rather than hot-installed).
+- **`POST /api/v1/assistant/search`** — pure semantic search, no generation; fast, doesn't touch the chat model.
+- **`POST /api/v1/assistant/ask`** — a question naming a specific IP/CIDR is resolved **deterministically** first (regex + exact/containment lookup against the real `subnets` collection), never left to embedding-search ranking — verified that an exact CIDR match can score *lower* than an unrelated subnet, since the embedding model mostly captures the blurb template, not the digits. If that question is asking about free/available addresses, the answer is built **entirely in code** from real `ip_records` data (occupied vs. usable, per-subnet), with **no LLM call at all** — after two different LLM hallucinations on this exact task (a false "ranging from X to Y" claim, then outright confused text), the model was removed from this path rather than prompt-tuned further. Otherwise, it falls back to semantic search + a grounded chat answer, same as before.
+- **Per-user conversation history** — every exchange is saved (`assistant_messages`, scoped strictly by the caller's own username from their auth token) and reloaded on every page visit, so refreshing or navigating away and back picks the conversation back up. A left sidebar lists every past conversation (preview + relative time); click one to resume it. **New Conversation** points forward to a fresh session without deleting anything; **delete** (per conversation, with a confirm prompt) is the one explicit, user-triggered exception that actually removes data.
+
+**Hardware constraint (important):** this host's CPU is an Intel Xeon E5-2670 (~2012, no AVX2/FMA). Measured: chat generation ~0.18 tokens/second, prompt *processing* ~1.1 tokens/second — a real RAG call pays both costs, so a short answer can take 1-3+ minutes. This is a genuine hardware ceiling, not a tuning gap. Consequences baked into the design:
+- The indexer (`scripts/build_embeddings.py`, nightly at 3:30 AM) covers **subnets only** — full IP-record indexing (tens of thousands of records) would take many hours and would pin all 8 cores on the same VM serving live IPAM traffic. Revisit if this workload ever moves to modern-CPU hardware.
+- Generation length is capped (`num_predict`) and the frontend shows an elapsed-time counter instead of a bare spinner, so a slow answer reads as "working" rather than "hung".
+- Every layer in the request path is sized to the *real* measured cost, not a normal-hardware guess: `nginx`'s `/api/v1/assistant/` location has its own `proxy_read_timeout` (900s vs. the general API's 60s), matched by `ai_service.py`'s own timeout and the frontend's per-call `axios` timeout.
+- A subnet's free-address computation never materializes a full host list above 4,096 addresses (this data genuinely has a `/13` — 524,286 addresses — and nine `/16`s) — counts stay exact via arithmetic; only the enumerated sample is skipped for a subnet that large.
+- Vault password entries are **never** indexed, regardless of scope — secrets must not enter the embedding/LLM pipeline, even offline.
+
+#### Daily Anomaly Digest (Dashboard)
+A nightly job (`scripts/anomaly_digest.py`, 3:40 AM) reuses the exact same queries the Dashboard already trusts — Stale "In Use" records, duplicate hostname groups — plus one new check (Environment=DR records vCenter has never actually confirmed, i.e. `power_state` unset: a cheap, real signal for drift back toward the exact class of false-positive this project hit before). Same "let the LLM narrate, never let it compute" principle as the free-address fix above: every number is a real, deterministic count; the model's only job is turning already-correct facts into one short paragraph. Skips the LLM call entirely when every count is zero. Read via `GET /api/v1/stats/anomaly-digest` — a pre-computed read, never generated on a page load.
 
 #### Check Availability — merged, single click (per-record, real-time)
 Right-click any IP (in IP Records) → **Check Availability** scans **Device42, then Zabbix, then PaloAlto, then vSphere in sequence** — one action instead of picking a source. A live progress modal shows each source as it's checked, then applies the combined result immediately:
@@ -719,6 +747,113 @@ All security fixes verified. All new features (folders, share links, password ge
 ---
 
 ## Changelog
+
+### v9.5.3 — Own-database IP/hostname lookup, retry on transient Ollama failures
+
+**Real gap fixed: the assistant never consulted its own core data by default**
+
+Asked to "make the AI assistant smarter, more reliable, and more knowledgeable about the project." The single biggest concrete gap: a casual mention of an IP with no "check" verb ("what do we know about 172.31.3.166", "tell me about 10.1.2.3") fell straight to the general LLM fallback, which has zero access to individual IP-record data — only subnets are ever embedded. For an IPAM tool's own assistant to never look at its own `ip_records` collection by default was backwards. Fixed: any bare IP mention now triggers a deterministic lookup against this app's own database first (`IPRecordRepository.find_by_ip`) — real hostname, status, environment, OS, power state, owner, last-updated info, no LLM involved. When a check-verb IS present, `_live_ip_check` now shows both this app's own record *and* the live external results together, distinguishing "what we have on file" from "what's confirmed live right now" (an existing record could itself be stale — exactly what the fleet-stats stale-record check already watches for).
+
+**New: hostname lookup** — "what's the IP for db-prod-3", "tell me about host X" now resolve via a fuzzy, case-insensitive regex match against `ip_records.hostname`, deterministic, capped at 10 results. Found and fixed a real bug while testing this against actual production data: the hostname-extraction regex's character class excluded underscores, and this app's real hostnames use them (e.g. `MP_Server_MP_UniMed_Server`) — every single-word-shaped hostname with an underscore silently failed to match at all before the fix.
+
+**Reliability: one bounded retry for transient Ollama connection failures** — `ai_service.py`'s `embed_text`/`chat_completion` now retry once on a connect-level failure only (the native Ollama systemd service briefly restarting, or momentarily between requests right as `OLLAMA_KEEP_ALIVE` expires and it's about to reload a model). Deliberately NOT retried: a read timeout (the full budget already elapsed — retrying just doubles the wait) or an HTTP error status (a real error a retry can't fix) — retrying blindly on every failure would mask genuine problems as transient slowness.
+
+Deployed via the established hot-patch pattern (image rebuild remains blocked — see v9.5.2's critical finding, still unresolved as of this entry): sha256sum parity confirmed across local repo / running container / `/opt/IOP` mirror, all 24 tests re-passed, verified live against real production records (not mocked).
+
+---
+
+### v9.5.2 — Unrelated-source bug fix, Docker status, and a critical deployment finding
+
+**Bug fix: irrelevant subnet chips on any unrelated question**
+
+Reported with a screenshot: questions with nothing to do with subnets ("how many users do I have", "check docker status in server") still showed 4 subnet CIDR chips as "sources." Root cause: the general LLM fallback's semantic search always returns its top-k *nearest* matches with no relevance floor, and subnets are the only thing ever embedded (see `build_embeddings.py`'s scope note) — so any question gets *something* back, never "no match." Measured live: genuinely unrelated questions score ~0.48-0.54 against the nearest subnet blurb (shared vocabulary, not real relevance); a real subnet-adjacent question scored 0.67+. Fixed with `_SEMANTIC_RELEVANCE_FLOOR = 0.55` — anything below it is dropped from both the shown source chips and the model's context, verified live: all three reported unrelated questions now correctly show zero sources.
+
+**"Which subnets are full/close to full" now answered correctly**
+
+Same report flagged this doesn't work — it didn't, because the fleet-stats critical-subnet keyword match only covered "over threshold" phrasing. Broadened to also catch "full", "close to full", "near capacity", "running out", "highest utilization", etc. This is also a better fix than semantic search would ever have been for this question: subnet *utilization* isn't in the static blurb text at all, so semantic search could never really answer it — it needs the same real, computed aggregation the fleet-stats work already added.
+
+**New capability: Docker container status**
+
+Reported: "AI should be able to check docker status." Deliberately does NOT mount `docker.sock` into `iop-api` to do this — an app container that also executes chat-driven code paths having socket access is equivalent to giving it root on the host, and the standard mitigation (a read-only docker-socket-proxy sidecar) needs an image this air-gapped host can't pull. Instead: a new host-side cron script (`scripts/docker_status_snapshot.sh`, every 2 min, runs as the `ansible` user via its existing passwordless `sudo docker` access) snapshots container name/status/health to a plain JSON file, bind-mounted **read-only** into `iop-api` (`docker-compose.yml`). `assistant.py`'s new `_docker_status()` reads it the same way `_server_status()` reads `/proc` — no socket, no LLM, and it flags if the snapshot is stale (cron job possibly broken) rather than silently serving old data as live.
+
+**⚠ Critical deployment finding: the `iop-api` Docker image was stale since the AI assistant feature began**
+
+Discovered while deploying the Docker-status bind mount: recreating the `iop-api` container (`docker compose up -d api`, needed to pick up the new volume mount) reverted the entire container back to an **April-era image** — `assistant.py`, `ai_service.py`, the `conversation_repository.py`/`embedding_repository.py` repositories, and the `stats.py` fleet-analytics refactor **did not exist in the built image at all**. Every one of those had only ever been deployed via `docker cp` onto the *running container's* writable layer, session after session, across the whole multi-session AI-assistant project — never through an actual image rebuild. A plain `docker restart` preserves that writable layer (confirmed safe — survived this same session's full VM reboot earlier), but any container **recreation** (`docker compose up`/`recreate`, a `pull`, a `rm`+`run`) discards it and reverts to the stale image.
+
+**Recovered immediately**: the full `/opt/IOP/backend/app` source tree (confirmed complete and correct — unlike the image, the source mirror had been kept properly in sync all along) was copied wholesale into the freshly recreated container, verified via sha256sum against the local repo, all 24 tests re-passed, and the app confirmed healthy end-to-end.
+
+**Image could not be rebuilt to fix this properly**: `docker compose build api` fails — this host has no working path to pull even the base `python:3.11-slim` image (TLS/registry failure), and it isn't cached locally either (unclear how the original April image was built at all; possibly built elsewhere and loaded, or built when a brief window of registry access existed). **This remains an open, unresolved risk** — until the image can be rebuilt (needs either restored registry access or a manually-transferred base image, same logistics as how the Ollama GGUF models got onto this host), any future recreation of `iop-api` will silently revert the AI assistant feature again. **Anyone doing infrastructure work on this host must know: `docker restart iop-api` is safe, `docker compose up`/recreate/pull for the `api` service is NOT** — it must be immediately followed by re-syncing `/opt/IOP/backend/app` into the container (see this session's recovery steps) until the image itself is fixed.
+
+---
+
+### v9.5.1 — Host resize (8→16 cores, 15→31GB RAM), AI limits relaxed accordingly
+
+The production host was backed up (MongoDB dump + full `/opt/IOP`, verified byte-identical on-server and locally) and resized via direct ESXi access (vCenter itself was — and still is — unreachable from this host, so the normal vSphere Client path wasn't available). Re-measured live on real prompts after reboot: prompt processing ~1.1 → ~34 tok/s, generation ~0.18 → ~6.4 tok/s (~30-35x). Ollama needed no config change — it auto-detects CPU count at startup and the whole VM rebooted.
+
+Every timeout/token-budget limit in `ai_service.py`/`assistant.py` that existed specifically *because* of the old ~0.18 tok/s ceiling was relaxed to match: chat read timeout 900s → 180s (still >3x the measured worst case, not shaved to the minimum), default response length 60 → 200 tokens, semantic search breadth in the general fallback 3-4 → 6-8 records (now matching `/search`'s own default), system prompt "a sentence or two" → "2-4 sentences" to actually use the new headroom. Verified live: a real multi-fact open-ended question answered correctly and completely in 19.9s.
+
+**What deliberately did NOT change**: every path that keeps the LLM out entirely — free-address lists, server RAM/CPU status, live IP checks, fleet analytics (duplicates/stale/DR/critical-subnets/sync-status) — stays 100% deterministic. Those were correctness decisions (a quantized 8B model unreliably reproducing exact numbers), not speed decisions; faster hardware doesn't make the model more numerically trustworthy, so relaxing speed-driven limits must not be read as license to let the model start stating real data again.
+
+---
+
+### v9.5.0 — Real tool-calling, conversational memory, fleet analytics
+
+**Intent routing — priority-ordered, mostly deterministic**
+
+`/assistant/ask` no longer forces every question through subnet semantic search regardless of what was asked (previously even "what is your model?" attached 4 unrelated subnet CIDRs as "sources"). Routed in order: a short follow-up ("try again please to check") with no content of its own gets the previous message prepended before anything else runs — real conversational memory, not just per-request statelessness → meta questions about the assistant itself or this app's data sources → server RAM/CPU status (read directly from `/proc`, not container-namespaced for these two files — verified side-by-side against the host) → a live IP-availability check that actually calls this app's real Device42/Zabbix/PaloAlto/vSphere lookups (the same functions Check Availability uses) and reports the real result, no LLM involved → fleet-wide analytics (see below) → a directly-named subnet/CIDR resolved deterministically → general semantic search + grounded chat, unchanged.
+
+**Fleet analytics — the assistant can now answer about the whole fleet, not just one subnet at a time**
+
+Previously any question that wasn't about one specific subnet's own fields (duplicate hostnames? stale records? DR-tagging confirmation? subnets over threshold? nightly sync health?) fell through to the general LLM fallback with only a handful of semantically-matched subnet blurbs as context — nowhere near enough to answer, reading as "can't do that" rather than genuinely incapable. Reuses `stats.py`'s own trusted aggregation (factored out into `compute_dashboard_stats()`, used by both the Dashboard and the assistant — never a second, slightly-different reimplementation) and the nightly anomaly digest. Every fact is real, computed Python/Mongo arithmetic; the model is never asked to state or reproduce any of these numbers itself, same "let the LLM narrate, never let it compute" principle as the free-address and server-status paths. Covers: duplicate hostnames, stale "In Use" records, DR records vCenter has never confirmed, subnets over their alert threshold, environment/OS/status breakdowns, nightly sync status, fleet-wide counts, unused IP totals, vSphere power state, PaloAlto Check Availability activity. Genuinely open-ended questions that don't match any specific branch also now get a real fleet snapshot (totals + the latest nightly anomaly summary) injected as LLM context, instead of nothing.
+
+---
+
+### v9.4.0 — Conversation history, exact-match fix, Daily Anomaly Digest
+
+**Per-user conversation history + sidebar**
+
+- Every `/assistant` exchange is now saved (`assistant_messages`), scoped strictly by the caller's own username from their auth token — verified directly with two real user IDs that neither can see the other's history. Reloaded on every page visit, so a refresh or navigating away and back picks the conversation back up instead of resetting.
+- Left sidebar lists every past conversation (preview + relative time); click one to resume it, **New Conversation** to start fresh (doesn't delete anything — just points forward to a new session), or **delete** a specific conversation (the one explicit, user-triggered exception that actually removes data, with a confirm prompt).
+
+**A real retrieval bug, found and fixed — twice**
+
+- Reported: asking about a real, existing subnet (`172.31.4.0/24`) returned "I cannot find any information," while unrelated subnets showed up as sources. Reproduced directly: the exact CIDR scored *lower* in semantic search than wrong subnets — the embedding model captures the blurb's template text far more than the specific digits, so an exact numeric match can't be trusted to rank itself highly enough. Fixed: a question naming a specific IP/CIDR is now resolved **deterministically** (regex + exact/containment lookup against the real `subnets` collection) instead of hoping embedding search finds it.
+- Free-address questions ("give me free IPs in X") go further: the count and address list are computed in Python against real `ip_records` data, never handed to the LLM to reproduce. First attempt still asked the model for a short intro sentence over that data — it got it wrong twice, in two different ways (a false "ranging from X to Y" claim, then outright confused/off-topic text). Removed the LLM from this path entirely rather than prompt-tune a third time: the sentence is now built in code too. Result: **0.09s instead of ~90s, and guaranteed correct** — reproduced against the user's exact reported example, address list matched exactly.
+- Found and fixed a related latent risk while investigating: computing free addresses for a subnet materialized every host address into a Python list — fine for a `/24`, but this data has a real `/13` (524,286 addresses) and nine `/16`s (65,534 each). Counts are now always exact arithmetic; the enumerated sample is skipped above 4,096 addresses.
+
+**Daily Anomaly Digest**
+
+- New nightly job (`scripts/anomaly_digest.py`, 3:40 AM) reusing the Dashboard's own trusted Stale "In Use" and duplicate-hostname queries, plus one new check (DR-tagged records vCenter has never confirmed). Same principle as the free-address fix: every number is a real, deterministic count — the LLM only turns already-correct facts into one short paragraph, never computes anything itself. Skips the LLM call entirely when there's nothing to report.
+
+**Other fixes found during review**
+
+- `build_embeddings.py`: a malformed document (or a transient Mongo write error) could abort the *entire* nightly indexing run instead of just that one record — now isolated per-document, matching how every other sync script in this project already handles failures.
+- Same script: if the source collection's cursor ever yielded zero documents (a transient hiccup, not a genuinely empty collection), the cleanup step's `$nin: []` query would have matched *every* document and wiped all embeddings for that collection. Added a guard that skips cleanup and logs a warning instead.
+- `record_embeddings` and `assistant_messages` were created without the indexes every other collection in this codebase gets in `mongodb/init.js` — added retroactively (applied to the live database directly, since `init.js` only runs once on a fresh volume).
+- Fixed a frontend race: sending a message before conversation history finished loading could let the history fetch overwrite the just-sent message.
+
+---
+
+### v9.3.0 — Offline AI Assistant (Ollama, local LLM chat + semantic search)
+
+**A local, offline AI assistant — no data leaves this server**
+
+- New `/assistant` page (Viewer+): chat Q&A and semantic search over subnet inventory, answered by a locally-hosted LLM (Llama 3.1 8B Instruct) grounded in retrieved records (retrieval-augmented generation) rather than free-form guessing — the model is explicitly instructed to say so when the context doesn't contain an answer.
+- **Ollama runs as a native systemd service on the host**, not in Docker — the server has no outbound internet, so `docker pull ollama/ollama` isn't possible there; the binary (trimmed of unused CUDA/Vulkan runtime libs — 59MB vs. ~2.2GB stock) was downloaded elsewhere and transferred, same "everything staged offline, then copied in" pattern as every other integration here. Bound only to `172.18.0.1:11434`, the `iop-external` Docker bridge's own gateway address — verified reachable from `iop-api`, verified **unreachable** from `ens192`/`ens224` or anywhere outside the host.
+- Model files (Llama 3.1 8B Q4_K_M GGUF, nomic-embed-text GGUF) live on `/data` — `/opt`'s own volume is only 500MB, nowhere near enough for a ~5GB model.
+- Semantic search runs as a MongoDB aggregation (`$zip`/`$map`/`$multiply`/`$sum` computing a dot product against L2-normalized embeddings) — deliberately not a vector database: this container's image can't be rebuilt on the no-internet host, so a new Python dependency (numpy, faiss, etc.) would have to be hot-installed and re-applied by hand after every future container recreate. This avoids that entirely.
+
+**A real hardware finding, not a config problem**
+
+- This VM's CPU is an **Intel Xeon E5-2670 (~2012 Sandy Bridge) — no AVX2, no FMA**, the instruction sets modern LLM inference is built around. Measured directly: chat generation **~0.18 tokens/second** (a trivial "count to 20" reply took 5.5 minutes); a single embedding call **~350ms-19s** depending on contention (Ollama is configured `OLLAMA_NUM_PARALLEL=1` on this box — true parallel requests wouldn't add throughput on an already CPU-bound host, only queuing delay, so client-side concurrency was deliberately set to match that reality rather than pretend to parallelize).
+- Scoped accordingly rather than shipped as if this were modern hardware: the nightly indexer (`build_embeddings.py`) covers **subnets only** (~1,400 records) — indexing the full IP-record fleet (tens of thousands of records) at this speed would take many hours and would pin all 8 cores on the same VM serving live IPAM traffic. Chat responses are capped in length (`num_predict`) and the timeout chain (backend `httpx`, `nginx` `proxy_read_timeout`, frontend `axios`) is sized to the real measured latency at every layer, not the 30-60s that's fine for every other endpoint in this app.
+- Frontend shows an elapsed-time counter during a pending answer ("Thinking… (47s) — this runs on older CPU hardware and can take a couple of minutes") instead of a bare spinner, so a slow-but-working response doesn't read as hung.
+
+**Security boundaries**
+
+- Vault password entries are **never** indexed, regardless of scope — secrets must not enter the embedding/LLM pipeline, even offline, even on a server with no outbound internet.
+
+---
 
 ### v9.2.0 — vCenter/vSphere Integration, Power State Tracking, Environment Auto-Tagging
 

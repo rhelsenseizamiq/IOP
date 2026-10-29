@@ -106,11 +106,22 @@ class CabinetService:
         existing = await self._cabinets.find_by_name(data.name)
         if existing is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Cabinet name '{data.name}' is already taken")
+        # Always include the creator as a member — password_service.py's
+        # membership check (_assert_member) deliberately has NO admin
+        # bypass, unlike cabinet-metadata access here, since password
+        # CONTENTS are more sensitive than a cabinet's existence/entry
+        # count. Without this, an admin who creates a cabinet without
+        # explicitly selecting themselves in the frontend's "Members" field
+        # gets locked out of their own cabinet's password entries. See
+        # security review 2026-10-29 / full regression test same day.
+        member_usernames = list(data.member_usernames)
+        if created_by not in member_usernames:
+            member_usernames.append(created_by)
         now = datetime.now(timezone.utc)
         doc = {
             "name": data.name,
             "description": data.description,
-            "member_usernames": data.member_usernames,
+            "member_usernames": member_usernames,
             "created_at": now,
             "updated_at": now,
             "created_by": created_by,

@@ -18,6 +18,13 @@ class AuditAction(str, Enum):
     REGISTER = "REGISTER"
     APPROVE = "APPROVE"
     REJECT = "REJECT"
+    # File sharing (see app/services/file_service.py / share_service.py)
+    UPLOAD = "UPLOAD"
+    DOWNLOAD = "DOWNLOAD"
+    SHARE_CREATE = "SHARE_CREATE"
+    SHARE_VIEW = "SHARE_VIEW"
+    SHARE_REVOKE = "SHARE_REVOKE"
+    MALWARE_DETECTED = "MALWARE_DETECTED"
 
 
 class ResourceType(str, Enum):
@@ -32,6 +39,8 @@ class ResourceType(str, Enum):
     CABINET = "cabinet"
     PASSWORD_ENTRY = "password_entry"
     ASSET = "asset"
+    FILE = "file"
+    SHARE_LINK = "share_link"
 
 
 class AuditLog(BaseModel):

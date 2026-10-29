@@ -54,3 +54,8 @@
     @apply border-border;
   }
 }
+
+html,
+body {
+  background-color: #1e1e28;
+}

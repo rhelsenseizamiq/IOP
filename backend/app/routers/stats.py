@@ -24,12 +24,34 @@ _VIEWER_PLUS = require_role("Viewer", "Operator", "Administrator", "SuperAdmin")
 _UNUSED_SCAN_CAP = 65536
 
 
-@router.get("")
-async def get_dashboard_stats(
-    request: Request,
+@router.get("/anomaly-digest")
+async def get_anomaly_digest(
     current_user: UserInToken = Depends(_VIEWER_PLUS),
 ) -> dict:
+    """Reads the pre-computed nightly digest (scripts/anomaly_digest.py)
+    — never generated on-demand here, since that would mean a Dashboard
+    page load blocking on an LLM call on this CPU-only host. Returns
+    nulls if the job hasn't run yet (e.g. right after this feature was
+    first deployed, before the next cron cycle)."""
     db = get_database()
+    doc = await db["dashboard_digests"].find_one({"_id": "latest"})
+    if not doc:
+        return {"generated_at": None, "summary": None, "counters": {}, "status": None}
+    generated_at = doc.get("generated_at")
+    return {
+        "generated_at": generated_at.isoformat() if generated_at else None,
+        "summary": doc.get("summary"),
+        "counters": doc.get("counters", {}),
+        "status": doc.get("status"),
+    }
+
+
+async def compute_dashboard_stats(db) -> dict:
+    """Pure business logic behind GET /stats, factored out so other
+    server-side code (the AI assistant's fleet-analytics intent — see
+    assistant.py) can reuse the exact same real aggregations rather than
+    re-implementing them a second time. No FastAPI Depends/Request here —
+    just a database handle in, a dict out."""
     ip_repo = IPRecordRepository(db["ip_records"])
     subnet_repo = SubnetRepository(db["subnets"])
     vrf_repo = VRFRepository(db["vrfs"])
@@ -275,3 +297,11 @@ async def get_dashboard_stats(
         "stale_in_use": stale_in_use,
         "duplicates_summary": duplicates_summary,
     }
+
+
+@router.get("")
+async def get_dashboard_stats(
+    request: Request,
+    current_user: UserInToken = Depends(_VIEWER_PLUS),
+) -> dict:
+    return await compute_dashboard_stats(get_database())

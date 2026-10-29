@@ -33,6 +33,7 @@ import {
   ScanOutlined,
   DiffOutlined,
   ClusterOutlined,
+  RobotOutlined,
 } from "@ant-design/icons";
 import {
   PieChart,
@@ -57,6 +58,7 @@ import type {
   ActivityItem,
   SyncSourceStatus,
   StaleInUseSample,
+  AnomalyDigest,
 } from "../../types/stats";
 import BulkCheckAvailabilityModal from "../../components/common/BulkCheckAvailabilityModal";
 import DuplicatesModal from "../../components/common/DuplicatesModal";
@@ -64,14 +66,16 @@ import DuplicatesModal from "../../components/common/DuplicatesModal";
 dayjs.extend(relativeTime);
 
 // Nightly cron: Device42 @ 02:00 UTC, Zabbix @ 02:35 UTC, PaloAlto @ 02:50
-// UTC, vCenter @ 03:10 UTC. Flag as stale past 27h so a single
-// missed/delayed run doesn't false-alarm before the next one.
+// UTC, vCenter @ 03:10 UTC, AI assistant index @ 03:30 UTC. Flag as stale
+// past 27h so a single missed/delayed run doesn't false-alarm before the
+// next one.
 const SYNC_STALE_HOURS = 27;
 const SYNC_SOURCE_LABEL: Record<string, string> = {
   device42: "Device42",
   zabbix: "Zabbix",
   paloalto: "PaloAlto",
   vcenter: "vCenter",
+  ai_embeddings: "AI Assistant Index",
 };
 
 // ── Minimal 3-colour palette ─────────────────────────────────────────────────
@@ -173,6 +177,7 @@ const DashboardPage: React.FC = () => {
   const firstName = fullName?.split(" ")[0];
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [digest, setDigest] = useState<AnomalyDigest | null>(null);
   const [staleModalOpen, setStaleModalOpen] = useState(false);
   const [staleBulkScanIds, setStaleBulkScanIds] = useState<string[] | null>(
     null,
@@ -199,6 +204,15 @@ const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     void fetchStats();
+    // Separate, non-blocking fetch — a missing/slow digest should never
+    // hold up the rest of the dashboard (everything above already loads
+    // independently of this).
+    statsApi
+      .getAnomalyDigest()
+      .then((res) => setDigest(res.data))
+      .catch(() => {
+        /* non-critical — the card just shows its own empty state */
+      });
   }, [fetchStats]);
 
   if (loading)
@@ -359,7 +373,13 @@ const DashboardPage: React.FC = () => {
             }
           >
             <Row gutter={[16, 12]}>
-              {["device42", "zabbix", "paloalto", "vcenter"].map((source) => {
+              {[
+                "device42",
+                "zabbix",
+                "paloalto",
+                "vcenter",
+                "ai_embeddings",
+              ].map((source) => {
                 const s = stats.sync_status[source];
                 const health = syncHealth(s);
                 const meta = SYNC_HEALTH_META[health];
@@ -448,6 +468,50 @@ const DashboardPage: React.FC = () => {
                 );
               })}
             </Row>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Daily Anomaly Digest — pre-computed nightly (scripts/anomaly_digest.py)
+          from the same Stale/Duplicate/DR checks already trusted elsewhere on
+          this page; the AI's only job is turning already-correct numbers into
+          a short paragraph, never computing them itself. */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col span={24}>
+          <Card
+            size="small"
+            title={
+              <span>
+                <RobotOutlined style={{ marginRight: 8 }} />
+                Daily Anomaly Digest
+              </span>
+            }
+          >
+            {!digest || !digest.generated_at ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Not generated yet — runs nightly after the other sync jobs.
+              </Typography.Text>
+            ) : digest.status === "error" ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Last run failed — check `logs/anomaly_digest/` on the server.
+              </Typography.Text>
+            ) : (
+              <>
+                <Typography.Paragraph style={{ margin: 0 }}>
+                  {digest.summary}
+                </Typography.Paragraph>
+                <Tooltip
+                  title={dayjs(digest.generated_at).format("YYYY-MM-DD HH:mm")}
+                >
+                  <Typography.Text
+                    type="secondary"
+                    style={{ fontSize: 11, display: "block", marginTop: 6 }}
+                  >
+                    Generated {dayjs(digest.generated_at).fromNow()}
+                  </Typography.Text>
+                </Tooltip>
+              </>
+            )}
           </Card>
         </Col>
       </Row>

@@ -20,23 +20,13 @@ import {
   DeleteOutlined,
   CopyOutlined,
   PlusOutlined,
+  LockOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
-import apiClient from "../../api/client";
+import { sharesApi } from "../../api/vault";
+import type { ShareLink } from "../../types/share";
 
 const { Text } = Typography;
-
-interface ShareLink {
-  id: string;
-  share_url: string;
-  expires_at: string | null;
-  max_views: number;
-  view_count: number;
-  note: string | null;
-  created_at: string;
-  created_by: string;
-  is_revoked: boolean;
-}
 
 interface Props {
   entryId: string;
@@ -67,9 +57,7 @@ const ShareModal: React.FC<Props> = ({
   const fetchShares = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await apiClient.get<ShareLink[]>(
-        `/passwords/${entryId}/shares`,
-      );
+      const { data } = await sharesApi.listForPassword(entryId);
       setShares(data);
     } catch {
       message.error("Failed to load share links");
@@ -89,13 +77,15 @@ const ShareModal: React.FC<Props> = ({
     expires_in_hours: number;
     max_views: number;
     note?: string;
+    password?: string;
   }) => {
     setCreating(true);
     try {
-      await apiClient.post(`/passwords/${entryId}/shares`, {
+      await sharesApi.createForPassword(entryId, {
         expires_in_hours: values.expires_in_hours,
         max_views: values.max_views ?? 0,
         note: values.note || null,
+        password: values.password || null,
       });
       message.success("Share link created");
       form.resetFields();
@@ -110,7 +100,7 @@ const ShareModal: React.FC<Props> = ({
 
   const handleRevoke = async (shareId: string) => {
     try {
-      await apiClient.delete(`/passwords/shares/${shareId}`);
+      await sharesApi.revokePasswordShare(shareId);
       message.success("Share link revoked");
       setShares((prev) => prev.filter((s) => s.id !== shareId));
     } catch {
@@ -152,8 +142,16 @@ const ShareModal: React.FC<Props> = ({
       title: "Note",
       dataIndex: "note",
       key: "note",
-      render: (v: string | null) =>
-        v ? <Text type="secondary">{v}</Text> : "—",
+      render: (v: string | null, r: ShareLink) => (
+        <Space size={4}>
+          {r.has_password && (
+            <Tooltip title="Password-protected">
+              <LockOutlined style={{ color: "#faad14" }} />
+            </Tooltip>
+          )}
+          {v ? <Text type="secondary">{v}</Text> : !r.has_password && "—"}
+        </Space>
+      ),
     },
     {
       title: "",
@@ -218,6 +216,13 @@ const ShareModal: React.FC<Props> = ({
           <Input
             placeholder="Recipient note (optional)"
             style={{ width: 160 }}
+          />
+        </Form.Item>
+        <Form.Item name="password" label="Passphrase">
+          <Input.Password
+            placeholder="Optional extra passphrase"
+            style={{ width: 160 }}
+            visibilityToggle
           />
         </Form.Item>
         <Form.Item>

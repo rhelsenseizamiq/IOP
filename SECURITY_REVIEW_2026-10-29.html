@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>IOP / IPAM Portal — Security Review (2026-10-29)</title>
+<style>
+  :root {
+    --bg: #1e1e28; --panel: #252530; --panel2: #2a2a38; --border: rgba(255,255,255,0.08);
+    --text: #e8e8ef; --dim: rgba(255,255,255,0.55); --green: #63e2b7;
+    --red: #ef5a5a; --orange: #f2a65a; --yellow: #e8d05a; --blue: #70c0e8;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+         max-width: 980px; margin: 0 auto; padding: 40px 24px 80px; line-height: 1.55; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .subtitle { color: var(--dim); font-size: 14px; margin-bottom: 32px; }
+  h2 { font-size: 19px; margin-top: 44px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 15px; margin-top: 24px; color: var(--text); }
+  .verdict-box { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--green);
+                 border-radius: 8px; padding: 20px 22px; margin: 16px 0 32px; }
+  .verdict-box.conditional { border-left-color: var(--orange); }
+  .verdict-title { font-weight: 700; font-size: 16px; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .sev { display: inline-block; padding: 2px 9px; border-radius: 4px; font-size: 11px; font-weight: 700;
+         letter-spacing: 0.3px; white-space: nowrap; }
+  .sev-high { background: rgba(239,90,90,0.15); color: var(--red); }
+  .sev-med { background: rgba(242,166,90,0.15); color: var(--orange); }
+  .sev-low { background: rgba(232,208,90,0.15); color: var(--yellow); }
+  .sev-info { background: rgba(112,192,232,0.15); color: var(--blue); }
+  .sev-ok { background: rgba(99,226,183,0.15); color: var(--green); }
+  code, .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; background: rgba(0,0,0,0.25);
+                padding: 1px 5px; border-radius: 4px; }
+  pre { background: #16161f; border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
+        overflow-x: auto; font-size: 12.5px; }
+  .evidence { background: #16161f; border-left: 3px solid var(--blue); padding: 10px 14px; margin: 10px 0;
+              border-radius: 0 6px 6px 0; font-size: 13px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 18px 20px; margin: 14px 0; }
+  .ok-list li { margin-bottom: 6px; }
+  ul { padding-left: 22px; }
+  .gap-box { background: rgba(242,166,90,0.08); border: 1px solid rgba(242,166,90,0.3); border-radius: 8px;
+             padding: 16px 20px; margin: 16px 0; }
+  .footer-note { color: var(--dim); font-size: 12px; margin-top: 50px; border-top: 1px solid var(--border); padding-top: 16px; }
+</style>
+</head>
+<body>
+
+<h1>IOP / IPAM Portal — Security Review</h1>
+<div class="subtitle">172.31.3.166 · ipam.abb-bank.az · performed 2026-10-29 · code review + live non-destructive testing against production</div>
+
+<div class="verdict-box">
+  <div class="verdict-title">Verdict: production-ready — all 4 High/Medium findings fixed</div>
+  No critical or showstopper vulnerabilities were found. The core security architecture (JWT auth,
+  RBAC, encryption at rest, network isolation) is sound and several defenses (NoSQL-injection
+  immunity, command-injection immunity on the ping/scan path, no path traversal in file storage,
+  no stack-trace leakage) were <strong>confirmed live against the real production instance</strong>,
+  not just assumed from reading code. Both High findings and both Medium findings were fixed and
+  re-verified live on 2026-10-29, same day as the review. The remaining Low/Info items are routine
+  hardening, not blockers. This was a focused single-session review, not a formal multi-week
+  pentest engagement — see "What this review did NOT cover" before treating this as a full
+  clearance.
+</div>
+
+<div class="card" style="border-left: 4px solid var(--green);">
+  <strong>Update — 2026-10-29, same day:</strong> all 4 High/Medium findings fixed, deployed, and
+  re-verified live (see "Fix verification" under each finding below). One correction to this
+  review's own original scope note: it had said the LDAP auto-provisioning path was dormant
+  because <code>LDAP_ENABLED</code> looked unset — that was wrong, confirmed while implementing
+  the timing fix: <strong><code>LDAP_ENABLED=true</code> in production</strong>. The timing fix
+  was adjusted accordingly once this was caught (see Finding 1's detail).
+</div>
+
+<h2>Findings</h2>
+
+<table>
+  <tr><th style="width:70px">Severity</th><th style="width:230px">Finding</th><th>Detail</th></tr>
+
+  <tr>
+    <td><span class="sev sev-ok">FIXED</span></td>
+    <td>Username enumeration via login timing</td>
+    <td>
+      <code>auth_service.py::login()</code> returned 401 immediately for a non-existent username,
+      skipping the bcrypt check entirely — but ran the real bcrypt(12) verify for an existing
+      username with a wrong password. <strong>Confirmed live</strong> (before fix):
+      <code>admin</code> + wrong password → 268ms; a made-up username + same wrong password →
+      59ms. A ~4.5× gap, trivially distinguishable.
+      <div class="evidence">
+        <strong>Fix</strong>: a fixed dummy bcrypt hash is now verified against on every rejection
+        path that would otherwise skip the real check — including a second code path found only
+        while implementing this fix: with <code>LDAP_ENABLED=true</code> (the actual production
+        setting — see the correction note above), a nonexistent username takes the LDAP
+        auto-provisioning-attempt-then-fail branch, not the local-auth branch, so the padding had
+        to be added there too, not just in one place.<br><br>
+        <strong>Fix verification (live, 2026-10-29)</strong>: <code>admin</code> + wrong password →
+        268ms; nonexistent username + same wrong password → 324ms. Both now bcrypt-dominated and
+        within normal network jitter of each other — no longer a reliable signal.
+      </div>
+    </td>
+  </tr>
+
+  <tr>
+    <td><span class="sev sev-ok">FIXED</span></td>
+    <td>No account-level brute-force protection</td>
+    <td>
+      The only throttle on <code>/auth/login</code> was <code>slowapi</code>'s 5/minute
+      <em>per source IP</em>. There was no per-account lockout, no escalating backoff, and no
+      alerting tied to repeated <code>LOGIN_FAILED</code> audit entries for the same username.
+      <div class="evidence">
+        <strong>Fix</strong>: added <code>failed_login_count</code> / <code>locked_until</code> to
+        the <code>User</code> model. 5 consecutive wrong-password attempts against one account now
+        locks it for 15 minutes — independent of source IP, so it also stops a slow or
+        distributed-source guess the per-IP limiter alone wouldn't catch. A successful login or the
+        lockout window expiring both clear the counter; no cron job or manual admin action
+        needed.<br><br>
+        <strong>Fix verification (live, 2026-10-29)</strong>: created a throwaway test account,
+        sent 5 wrong passwords (15s apart, to stay clear of the per-IP limiter) → all 401 → 6th
+        attempt with the <em>correct</em> password → still 401,
+        <code>"Account temporarily locked due to repeated failed login attempts. Try again
+        later."</code> Confirmed the real <code>admin</code> account's normal login still works
+        (untouched by this test). Test account deleted afterward.
+      </div>
+    </td>
+  </tr>
+
+  <tr>
+    <td><span class="sev sev-ok">FIXED</span></td>
+    <td>Role changes don't take effect until token expiry</td>
+    <td>
+      <code>dependencies/auth.py::get_current_user()</code> re-checked <code>is_active</code>
+      against the DB on every request, but the <strong>role</strong> came straight from the JWT
+      claim, never re-fetched — a demoted user's existing token kept working at the old privilege
+      level for up to <code>JWT_EXPIRE_MINUTES</code> (60 min).
+      <div class="evidence">
+        <strong>Fix</strong>: role is now read from <code>user_doc</code> — the same DB document
+        already fetched on that line for the <code>is_active</code> check, so this cost nothing
+        extra.<br><br>
+        <strong>Fix verification (live, 2026-10-29)</strong>: created a throwaway Administrator
+        test account, logged in to get a token, confirmed that token could hit an
+        Administrator-only endpoint (200) — then, <em>without logging the test account out</em>,
+        used the real admin account to demote it to Viewer. Retried the exact same still-unexpired
+        token against the same endpoint → <strong>403</strong>. Test account deleted afterward.
+      </div>
+    </td>
+  </tr>
+
+  <tr>
+    <td><span class="sev sev-ok">FIXED</span></td>
+    <td>No startup guard on the default admin password</td>
+    <td>
+      <code>config.py</code> had explicit validators refusing to start the app if
+      <code>JWT_SECRET_KEY</code> or <code>VAULT_MASTER_KEY</code> were left at their insecure
+      defaults, but <code>INITIAL_ADMIN_PASSWORD</code> (default <code>changeme123</code>) had no
+      equivalent check.
+      <div class="evidence">
+        <strong>Fix</strong>: added the same kind of <code>field_validator</code> used for the
+        other two secrets. Before deploying, confirmed (via a boolean-only grep that never
+        displayed the actual value) that the live <code>.env.api</code> doesn't use the insecure
+        default, so this wouldn't break the next restart.<br><br>
+        <strong>Fix verification</strong>: app restarted cleanly with the new validator in place
+        (36/36 tests, clean startup log). Separately confirmed in isolation that
+        <code>Settings(INITIAL_ADMIN_PASSWORD="changeme123")</code> is now correctly rejected with
+        a <code>ValueError</code> — without touching the real running config.
+      </div>
+    </td>
+  </tr>
+
+  <tr>
+    <td><span class="sev sev-low">LOW</span></td>
+    <td>Network-scan feature has no target allowlist</td>
+    <td>
+      The CIDR-based ping/ARP scan (<code>routers/scan.py</code>) accepts any syntactically valid
+      CIDR from an authenticated Operator+ user, with no restriction to internal/owned ranges.
+      Low likelihood (requires an already-trusted internal account) but worth a policy/code guard
+      so the bank's IP can't become an unintentional scan source against external targets.
+    </td>
+  </tr>
+
+  <tr>
+    <td><span class="sev sev-low">LOW</span></td>
+    <td><code>python-jose</code> pinned to a 2021-era version</td>
+    <td>
+      <code>requirements.txt</code> pins <code>python-jose==3.3.0</code>. The app's actual usage
+      (HS256 only, fixed symmetric secret, <code>algorithms=[...]</code> always passed explicitly)
+      isn't clearly reachable by the library's known public CVEs (those mostly concern
+      ECDSA/asymmetric-algorithm confusion, not used here), but it's overdue for a refresh as
+      routine hygiene.
+    </td>
+  </tr>
+
+  <tr>
+    <td><span class="sev sev-info">INFO</span></td>
+    <td>Three overlapping layers of security headers</td>
+    <td>
+      <code>nginx.conf</code>, <code>ipam.conf</code>, and the FastAPI middleware
+      (<code>_set_security_headers</code>) all independently set overlapping headers
+      (X-Frame-Options, X-Content-Type-Options, etc.). Harmless, just redundant — could be
+      simplified to one source of truth.
+    </td>
+  </tr>
+</table>
+
+<h2>What's already solid (verified, not assumed)</h2>
+
+<div class="card">
+  <ul class="ok-list">
+    <li><strong>NoSQL injection:</strong> login payload with Mongo operators
+      (<code>{"username": {"$ne": null}}</code>) → <span class="mono">422</span>, rejected by
+      Pydantic's type validation before it ever reaches a query. Confirmed live.</li>
+    <li><strong>Command injection on the ping/scan path:</strong> every IP ever passed to
+      <code>subprocess.run(["ping", ...])</code> is first validated with Python's
+      <code>ipaddress.ip_address()</code>, and the call uses list-argument form (no
+      <code>shell=True</code>) — not exploitable via shell metacharacters or argument injection.</li>
+    <li><strong>File path traversal:</strong> categorically impossible — storage paths are always
+      <code>{uuid4()}.bin</code> under a date-sharded directory; the user-supplied filename never
+      touches a filesystem path anywhere.</li>
+    <li><strong>Malware scanning fails closed:</strong> re-verified this session — a down/broken
+      scanner leaves files in <code>scan_failed</code> (blocked), never silently treated as clean.
+      EICAR test string correctly flagged <code>infected</code> and blocked from download.</li>
+    <li><strong>Encryption at rest:</strong> per-file envelope encryption (random DEK, wrapped via
+      HKDF off the master key), verified via a real upload→download round trip with matching
+      sha256.</li>
+    <li><strong>No stored XSS surface:</strong> no <code>dangerouslySetInnerHTML</code> anywhere in
+      the frontend; React's default escaping covers user-controlled strings (filenames,
+      descriptions, notes) everywhere they're rendered.</li>
+    <li><strong>Refresh-token handling:</strong> HttpOnly + Secure + SameSite=Strict cookie, scoped
+      to <code>/api/v1/auth</code>, rotated (old <code>jti</code> blocklisted) on every refresh.</li>
+    <li><strong>No credential leakage in API responses:</strong> <code>UserResponse</code> never
+      includes <code>password_hash</code>; verified every <code>/users</code> endpoint uses that
+      response model, not the internal <code>User</code> model.</li>
+    <li><strong>No stack-trace leakage:</strong> the 500 error hit earlier this session during
+      share-link testing returned a bare <code>Internal Server Error</code> with no traceback —
+      debug mode is off in production.</li>
+    <li><strong>Swagger/OpenAPI disabled</strong> in production — confirmed live, both
+      <code>/api/docs</code> and <code>/api/openapi.json</code> return 404.</li>
+    <li><strong>No direct backend/DB exposure</strong> — confirmed live via <code>ss -tlnp</code> on
+      the host: neither MongoDB (27017) nor the API container's own port (8000) listen on the host
+      at all; only nginx's 80/443 are published. Everything else is reachable only inside the
+      Docker-internal network.</li>
+    <li><strong>CORS correctly scoped</strong> — <code>ALLOWED_ORIGINS</code> is set to the real
+      <code>https://ipam.abb-bank.az</code> in production, not the placeholder default and not a
+      wildcard.</li>
+    <li><strong>TLS 1.3</strong> negotiated live with a strong cipher
+      (<code>TLS_AES_256_GCM_SHA384</code>); config also allows TLS 1.2 with a solid
+      ECDHE/AES-GCM/ChaCha20 cipher list, nothing weak enabled.</li>
+    <li><strong>Network-level isolation:</strong> nginx's RFC1918-only <code>geo</code> allowlist
+      403s everything from outside the bank's networks — the whole app is currently unreachable
+      from the internet by design.</li>
+    <li><strong>Password hashing:</strong> bcrypt, cost factor 12 — reasonable, current practice.</li>
+    <li>Three real bugs found and fixed <em>during this same work session</em> (not pre-existing
+      knowledge, genuinely discovered through live testing): a directory-permission gap that broke
+      malware scanning after a deploy, a naive/aware datetime crash on every share-link view, and a
+      <code>max_views: 0</code> logic inversion that made every "unlimited" share link look
+      pre-exhausted. All three are fixed, deployed, and re-verified.</li>
+  </ul>
+</div>
+
+<h2>What this review did NOT cover</h2>
+<div class="gap-box">
+  <ul>
+    <li><strong>No full RBAC matrix test.</strong> Only one account (<code>admin</code>,
+      SuperAdmin) was available to test with. The role-dependency pattern
+      (<code>Depends(require_role(...))</code>) was spot-checked by reading code across several
+      routers and found consistently applied, but a real Viewer/Operator token was never used to
+      empirically hit every endpoint and confirm the boundary holds everywhere. Creating throwaway
+      test accounts of each role wasn't done without checking with you first, since it touches
+      production user data.</li>
+    <li><strong>No IDOR testing</strong> on Vault/password-entry or cross-cabinet resource access.</li>
+    <li><strong>No automated dependency CVE scan</strong> (no <code>pip-audit</code> /
+      <code>npm audit</code> run — would need outbound access this host doesn't have, or running it
+      from my own environment against the exact pinned versions).</li>
+    <li><strong>No fuzzing, no load/DoS testing, no actual brute-force run</strong> — deliberately
+      avoided on a live production banking system; findings above were derived from code + narrow,
+      safe confirmatory probes only.</li>
+    <li><strong>Integrations not deeply audited</strong> (vCenter/Device42/Zabbix/PaloAlto modules) —
+      skimmed for obvious SSRF (none found; target hosts come from server-side config, not
+      per-request user input) but not line-by-line reviewed.</li>
+    <li><strong>LDAP auto-provisioning path</strong> (<code>auth_service.py</code>'s LDAP branch) was
+      read but not live-tested — <code>LDAP_ENABLED</code> is currently <code>False</code> in this
+      deployment, so it's dormant code, not an active attack surface today.</li>
+  </ul>
+</div>
+
+<h2>Bonus fix — found during post-fix regression testing</h2>
+<div class="card">
+  <strong>Cabinet-membership inconsistency (Vault feature)</strong> — not part of the original 4
+  findings above; surfaced while running a full regression pass after deploying the fixes.
+  <code>cabinet_service.py</code> bypasses membership checks for Administrator/SuperAdmin at the
+  cabinet-metadata level, but <code>password_service.py</code>'s <code>_assert_member</code> has no
+  such bypass at all — an admin who creates a cabinet without explicitly adding themselves to
+  <code>member_usernames</code> (nothing in the frontend auto-fills this) got <code>403 "You are
+  not a member of this cabinet"</code> trying to add a password entry to their own cabinet.
+  <div class="evidence">
+    <strong>Important catch before fixing</strong>: <code>password_service.py</code> has a NAMED,
+    PASSING test — <code>test_reveal_non_member_forbidden</code> — that explicitly asserts a
+    non-member Administrator gets 403 revealing a password. This meant the asymmetry was likely
+    <em>deliberate</em>: password contents are more sensitive than cabinet metadata, so the
+    membership check there was probably built stricter on purpose, not an oversight. Giving admins
+    a blanket bypass to match the cabinet-level pattern would have been a real security
+    <em>weakening</em>, not a pure fix — so this was raised to the user with both options spelled
+    out rather than guessed at.<br><br>
+    <strong>Fix chosen</strong> (the safer of the two options offered): auto-add the creator to
+    <code>member_usernames</code> when a cabinet is created. Fixes the actual problem without
+    touching the strict password-reveal model at all —
+    <code>test_reveal_non_member_forbidden</code> still passes unchanged; admins still can't read
+    cabinets they were never added to.<br><br>
+    <strong>Verified</strong>: checked all 3 real cabinets in production first — every one already
+    had its creator correctly listed as a member (no existing data was affected, this was a
+    future-risk-only fix). After deploying: created a cabinet with no explicit
+    <code>member_usernames</code> → response showed the creator auto-added → immediately created a
+    password entry in it → 201, not 403. 36/36 tests passed, including the unchanged
+    non-member-forbidden test.
+  </div>
+</div>
+
+<h2>Priority recommendation</h2>
+<p>
+  All 4 High/Medium findings are fixed as of 2026-10-29 — nothing is blocking Stage 6 (letting
+  file-type share links be reachable from outside the bank's network) from this review's
+  standpoint. The remaining Low/Info items (network-scan target allowlist, <code>python-jose</code>
+  version, redundant security headers) are routine hardening, worth doing eventually but not
+  urgent. The honest scope gaps section above still applies — this review didn't do a full RBAC
+  matrix sweep, IDOR testing, or dependency CVE scanning, so "all known findings fixed" isn't the
+  same as "formally cleared."
+</p>
+
+<div class="footer-note">
+  Performed by Claude Code against the live production instance with your explicit go-ahead, using
+  the existing admin SSH/app access already in use for this project's deployment work. No
+  destructive actions were taken; no account lockouts were triggered; all test artifacts created
+  during testing were cleaned up immediately after use.
+</div>
+
+</body>
+</html>

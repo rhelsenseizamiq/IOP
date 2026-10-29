@@ -9,6 +9,8 @@ import {
   Result,
   message,
   Tooltip,
+  Input,
+  Alert,
 } from "antd";
 import {
   EyeOutlined,
@@ -16,52 +18,86 @@ import {
   CopyOutlined,
   LockOutlined,
   SafetyCertificateOutlined,
+  FileOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
 import { useParams } from "react-router-dom";
-import axios from "axios";
+import { publicSharesApi } from "../../api/shares";
+import type { SharedResource } from "../../types/share";
 
 const { Title, Text } = Typography;
 
-interface SharedEntry {
-  entry_title: string;
-  username: string | null;
-  password: string;
-  url: string | null;
-  note: string | null;
-  expires_at: string;
-  view_count: number;
-  max_views: number;
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
-
-const BASE = "/api/v1";
 
 const SharePage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
-  const [entry, setEntry] = useState<SharedEntry | null>(null);
+  const [entry, setEntry] = useState<SharedResource | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const applyError = (err: unknown): void => {
+    const e = err as { response?: { status?: number; data?: { detail?: string } } };
+    if (e.response?.status === 404) setError("This share link was not found.");
+    else if (e.response?.status === 410)
+      setError(e.response?.data?.detail ?? "This share link has expired or been revoked.");
+    else if (e.response?.status === 429) setError("Too many requests. Please wait a moment and try again.");
+    else setError("Failed to load shared content. The link may be invalid.");
+  };
 
   useEffect(() => {
     if (!token) return;
-    axios
-      .get<SharedEntry>(`${BASE}/share/${token}`)
-      .then((r) => setEntry(r.data))
+    publicSharesApi
+      .view(token)
+      .then(setEntry)
       .catch((err) => {
-        if (err.response?.status === 404)
-          setError("This share link was not found.");
-        else if (err.response?.status === 410)
-          setError(
-            err.response?.data?.detail ??
-              "This share link has expired or been revoked.",
-          );
-        else if (err.response?.status === 429)
-          setError("Too many requests. Please wait a moment and try again.");
-        else setError("Failed to load shared entry. The link may be invalid.");
+        if (err.response?.status === 401 && err.response?.data?.detail === "password_required") {
+          setNeedsPassword(true);
+        } else {
+          applyError(err);
+        }
       })
       .finally(() => setLoading(false));
   }, [token]);
+
+  const handleUnlock = async () => {
+    if (!token) return;
+    setUnlocking(true);
+    setPasswordError(null);
+    try {
+      const data = await publicSharesApi.unlock(token, passwordInput);
+      setEntry(data);
+      setNeedsPassword(false);
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number } };
+      setPasswordError(e.response?.status === 401 ? "Incorrect passphrase." : "Failed to unlock this link.");
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!token || !entry || entry.resource_type !== "file") return;
+    setDownloading(true);
+    try {
+      await publicSharesApi.downloadFile(token, entry.filename, passwordInput || undefined);
+    } catch {
+      message.error("Download failed. The link may have expired or already been used.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // Auto-hide after 30 seconds when revealed
   useEffect(() => {
@@ -97,9 +133,42 @@ const SharePage: React.FC = () => {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          background: "#1e1e28",
         }}
       >
         <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (needsPassword && !entry) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#1e1e28",
+          padding: 24,
+        }}
+      >
+        <Card style={{ width: "100%", maxWidth: 420, borderRadius: 12 }} title="Passphrase Required">
+          <Space direction="vertical" style={{ width: "100%" }} size={16}>
+            <Text type="secondary">This link is protected with an extra passphrase.</Text>
+            <Input.Password
+              placeholder="Passphrase"
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              onPressEnter={() => void handleUnlock()}
+              autoFocus
+            />
+            {passwordError && <Alert type="error" message={passwordError} showIcon />}
+            <Button type="primary" block loading={unlocking} onClick={() => void handleUnlock()}>
+              Unlock
+            </Button>
+          </Space>
+        </Card>
       </div>
     );
   }
@@ -112,6 +181,7 @@ const SharePage: React.FC = () => {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          background: "#1e1e28",
         }}
       >
         <Result
@@ -123,11 +193,80 @@ const SharePage: React.FC = () => {
     );
   }
 
+  if (entry.resource_type === "file") {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#1e1e28",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+        }}
+      >
+        <Card
+          style={{ width: "100%", maxWidth: 480, borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+          title={
+            <Space>
+              <SafetyCertificateOutlined style={{ color: "#52c41a" }} />
+              <span>Shared File</span>
+            </Space>
+          }
+        >
+          <Space direction="vertical" style={{ width: "100%" }} size="large">
+            <div style={{ textAlign: "center" }}>
+              <FileOutlined style={{ fontSize: 40, color: "#63e2b7" }} />
+              <Title level={4} style={{ margin: "8px 0 0" }}>
+                {entry.filename}
+              </Title>
+              <Text type="secondary">{formatSize(entry.size_bytes)}</Text>
+            </div>
+
+            {entry.note && (
+              <Text type="secondary" style={{ fontStyle: "italic", display: "block", textAlign: "center" }}>
+                {entry.note}
+              </Text>
+            )}
+
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="Expires">
+                <Text type="secondary">
+                  {entry.expires_at ? new Date(entry.expires_at).toLocaleString() : "Never"}
+                </Text>
+              </Descriptions.Item>
+              {entry.max_views > 0 && (
+                <Descriptions.Item label="Downloads remaining">
+                  <Text type={entry.max_views - entry.view_count <= 1 ? "danger" : "secondary"}>
+                    {Math.max(0, entry.max_views - entry.view_count)}
+                  </Text>
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+
+            <Button type="primary" block icon={<DownloadOutlined />} loading={downloading} onClick={() => void handleDownload()}>
+              Download
+            </Button>
+
+            <div style={{ textAlign: "center" }}>
+              <Space>
+                <LockOutlined style={{ color: "#52c41a" }} />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Encrypted at rest · Scanned for malware before sharing
+                </Text>
+              </Space>
+            </div>
+          </Space>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
         minHeight: "100vh",
-        background: "linear-gradient(135deg, #0f1b2d 0%, #1a2942 100%)",
+        background: "#1e1e28",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -141,7 +280,6 @@ const SharePage: React.FC = () => {
           borderRadius: 12,
           boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
         }}
-        styles={{ header: { borderBottom: "1px solid #f0f0f0" } }}
         title={
           <Space>
             <SafetyCertificateOutlined style={{ color: "#52c41a" }} />
@@ -241,7 +379,7 @@ const SharePage: React.FC = () => {
 
             <Descriptions.Item label="Expires">
               <Text type="secondary">
-                {new Date(entry.expires_at).toLocaleString()}
+                {entry.expires_at ? new Date(entry.expires_at).toLocaleString() : "Never"}
               </Text>
             </Descriptions.Item>
 

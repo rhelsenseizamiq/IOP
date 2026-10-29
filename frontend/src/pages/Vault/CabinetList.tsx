@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Badge,
   Button,
@@ -8,11 +8,16 @@ import {
   Tooltip,
   Typography,
   message,
-} from 'antd';
-import { DeleteOutlined, EditOutlined, FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
-import { cabinetsApi } from '../../api/vault';
-import type { Cabinet } from '../../types/vault';
-import CabinetModal from './CabinetModal';
+} from "antd";
+import {
+  DeleteOutlined,
+  EditOutlined,
+  FolderOpenOutlined,
+  PlusOutlined,
+} from "@ant-design/icons";
+import { cabinetsApi } from "../../api/vault";
+import type { Cabinet } from "../../types/vault";
+import CabinetModal from "./CabinetModal";
 
 interface Props {
   selectedId: string | null;
@@ -22,7 +27,13 @@ interface Props {
   currentUsername: string | null;
 }
 
-const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin, isSuperAdmin, currentUsername }) => {
+const CabinetList: React.FC<Props> = ({
+  selectedId,
+  onSelect,
+  isAdmin,
+  isSuperAdmin,
+  currentUsername,
+}) => {
   const [cabinets, setCabinets] = useState<Cabinet[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -34,7 +45,7 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin, isSuperAd
       const res = await cabinetsApi.list();
       setCabinets(res.data);
     } catch {
-      message.error('Failed to load cabinets');
+      message.error("Failed to load cabinets");
     } finally {
       setLoading(false);
     }
@@ -47,10 +58,10 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin, isSuperAd
   const handleDelete = async (id: string): Promise<void> => {
     try {
       await cabinetsApi.delete(id);
-      message.success('Cabinet deleted');
+      message.success("Cabinet deleted");
       fetchCabinets();
     } catch {
-      message.error('Failed to delete cabinet');
+      message.error("Failed to delete cabinet");
     }
   };
 
@@ -66,20 +77,25 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin, isSuperAd
   };
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 16px',
-          borderBottom: '1px solid #f0f0f0',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 16px",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
         }}
       >
         <Typography.Text strong>Cabinets</Typography.Text>
         {isAdmin && (
           <Tooltip title="New Cabinet">
-            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openCreate} />
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={openCreate}
+            />
           </Tooltip>
         )}
       </div>
@@ -87,15 +103,21 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin, isSuperAd
       <List
         loading={loading}
         dataSource={cabinets}
-        style={{ flex: 1, overflowY: 'auto' }}
+        style={{ flex: 1, overflowY: "auto" }}
         renderItem={(cabinet) => (
           <List.Item
             onClick={() => onSelect(cabinet.id, cabinet.name)}
             style={{
-              cursor: 'pointer',
-              padding: '10px 16px',
-              backgroundColor: selectedId === cabinet.id ? '#e6f4ff' : undefined,
-              borderLeft: selectedId === cabinet.id ? '3px solid #1677ff' : '3px solid transparent',
+              cursor: "pointer",
+              padding: "10px 16px",
+              backgroundColor:
+                selectedId === cabinet.id
+                  ? "rgba(112,192,232,0.15)"
+                  : undefined,
+              borderLeft:
+                selectedId === cabinet.id
+                  ? "3px solid #70c0e8"
+                  : "3px solid transparent",
             }}
             actions={
               isAdmin
@@ -134,9 +156,14 @@ const CabinetList: React.FC<Props> = ({ selectedId, onSelect, isAdmin, isSuperAd
             }
           >
             <Space>
-              <FolderOpenOutlined style={{ color: '#faad14' }} />
+              <FolderOpenOutlined style={{ color: "#faad14" }} />
               <Typography.Text>{cabinet.name}</Typography.Text>
-              <Badge count={cabinet.entry_count} showZero color="#1677ff" size="small" />
+              <Badge
+                count={cabinet.entry_count}
+                showZero
+                color="#70c0e8"
+                size="small"
+              />
             </Space>
           </List.Item>
         )}

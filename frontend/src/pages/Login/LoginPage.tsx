@@ -68,7 +68,7 @@ const LoginPage: React.FC = () => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(135deg, #001529 0%, #003366 100%)",
+        background: "#1e1e28",
       }}
     >
       <Card
@@ -91,7 +91,7 @@ const LoginPage: React.FC = () => {
           >
             <div
               style={{
-                background: "linear-gradient(135deg, #1677ff 0%, #003366 100%)",
+                background: "linear-gradient(135deg, #18a058 0%, #36ad6a 100%)",
                 borderRadius: 10,
                 padding: "8px 20px",
                 display: "inline-flex",

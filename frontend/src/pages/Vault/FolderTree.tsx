@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
   Input,
@@ -7,7 +7,7 @@ import {
   Space,
   Tooltip,
   Typography,
-} from 'antd';
+} from "antd";
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
@@ -17,11 +17,13 @@ import {
   FolderOutlined,
   InboxOutlined,
   PlusOutlined,
-} from '@ant-design/icons';
-import { foldersApi } from '../../api/vault';
-import type { Folder } from '../../types/vault';
+} from "@ant-design/icons";
+import { foldersApi } from "../../api/vault";
+import type { Folder } from "../../types/vault";
 
-export type FolderSelection = { type: 'all' } | { type: 'folder'; folderId: string };
+export type FolderSelection =
+  | { type: "all" }
+  | { type: "folder"; folderId: string };
 
 interface Props {
   cabinetId: string;
@@ -65,11 +67,11 @@ const FolderTree: React.FC<Props> = ({
   onDropToFolder,
 }) => {
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [dragOverId, setDragOverId] = useState<string | 'root' | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | "root" | null>(null);
   const [addingIn, setAddingIn] = useState<string | null>(null);
-  const [addingName, setAddingName] = useState('');
+  const [addingName, setAddingName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
+  const [editingName, setEditingName] = useState("");
   const addInputRef = useRef<any>(null);
   const editInputRef = useRef<any>(null);
 
@@ -78,7 +80,7 @@ const FolderTree: React.FC<Props> = ({
       const res = await foldersApi.list(cabinetId);
       setFolders(res.data);
     } catch {
-      message.error('Failed to load folders');
+      message.error("Failed to load folders");
     }
   }, [cabinetId]);
 
@@ -96,53 +98,63 @@ const FolderTree: React.FC<Props> = ({
 
   const handleCreate = async (parentId: string | null) => {
     const name = addingName.trim();
-    if (!name) { setAddingIn(null); return; }
-    try {
-      await foldersApi.create({ cabinet_id: cabinetId, parent_id: parentId, name });
-      message.success('Folder created');
+    if (!name) {
       setAddingIn(null);
-      setAddingName('');
+      return;
+    }
+    try {
+      await foldersApi.create({
+        cabinet_id: cabinetId,
+        parent_id: parentId,
+        name,
+      });
+      message.success("Folder created");
+      setAddingIn(null);
+      setAddingName("");
       fetchFolders();
     } catch (err: any) {
-      message.error(err?.response?.data?.detail ?? 'Failed to create folder');
+      message.error(err?.response?.data?.detail ?? "Failed to create folder");
     }
   };
 
   const handleRename = async (id: string) => {
     const name = editingName.trim();
-    if (!name) { setEditingId(null); return; }
+    if (!name) {
+      setEditingId(null);
+      return;
+    }
     try {
       await foldersApi.update(id, { name });
-      message.success('Folder renamed');
+      message.success("Folder renamed");
       setEditingId(null);
-      setEditingName('');
+      setEditingName("");
       fetchFolders();
     } catch (err: any) {
-      message.error(err?.response?.data?.detail ?? 'Failed to rename folder');
+      message.error(err?.response?.data?.detail ?? "Failed to rename folder");
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await foldersApi.delete(id);
-      message.success('Folder deleted');
-      if (selection.type === 'folder' && selection.folderId === id) {
-        onSelect({ type: 'all' });
+      message.success("Folder deleted");
+      if (selection.type === "folder" && selection.folderId === id) {
+        onSelect({ type: "all" });
       }
       fetchFolders();
     } catch {
-      message.error('Failed to delete folder');
+      message.error("Failed to delete folder");
     }
   };
 
   const isSelected = (folderId: string) =>
-    selection.type === 'folder' && selection.folderId === folderId;
-  const isAllSelected = selection.type === 'all';
+    selection.type === "folder" && selection.folderId === folderId;
+  const isAllSelected = selection.type === "all";
 
-  const handleDragOver = (e: React.DragEvent, id: string | 'root') => {
+  const handleDragOver = (e: React.DragEvent, id: string | "root") => {
     if (!draggingEntryId) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = "move";
     setDragOverId(id);
   };
 
@@ -161,21 +173,23 @@ const FolderTree: React.FC<Props> = ({
       <div key={folder.id}>
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
+            display: "flex",
+            alignItems: "center",
             padding: `6px 8px 6px ${16 + depth * 16}px`,
-            cursor: 'pointer',
+            cursor: "pointer",
             borderRadius: 6,
             backgroundColor: isDragOver
-              ? '#d4edda'
+              ? "rgba(82,196,26,0.18)"
               : selected
-              ? '#e6f4ff'
-              : undefined,
-            borderLeft: selected ? '3px solid #1677ff' : '3px solid transparent',
-            borderRight: isDragOver ? '2px dashed #52c41a' : undefined,
-            transition: 'background 0.15s',
+                ? "rgba(112,192,232,0.15)"
+                : undefined,
+            borderLeft: selected
+              ? "3px solid #70c0e8"
+              : "3px solid transparent",
+            borderRight: isDragOver ? "2px dashed #52c41a" : undefined,
+            transition: "background 0.15s",
           }}
-          onClick={() => onSelect({ type: 'folder', folderId: folder.id })}
+          onClick={() => onSelect({ type: "folder", folderId: folder.id })}
           onDragOver={(e) => handleDragOver(e, folder.id)}
           onDragLeave={() => setDragOverId(null)}
           onDrop={(e) => handleDrop(e, folder.id)}
@@ -195,12 +209,18 @@ const FolderTree: React.FC<Props> = ({
           ) : (
             <>
               {children.length > 0 ? (
-                <FolderOpenOutlined style={{ color: '#faad14', marginRight: 6 }} />
+                <FolderOpenOutlined
+                  style={{ color: "#faad14", marginRight: 6 }}
+                />
               ) : (
-                <FolderOutlined style={{ color: '#faad14', marginRight: 6 }} />
+                <FolderOutlined style={{ color: "#faad14", marginRight: 6 }} />
               )}
               <Typography.Text
-                style={{ flex: 1, fontSize: 13, color: selected ? '#1677ff' : undefined }}
+                style={{
+                  flex: 1,
+                  fontSize: 13,
+                  color: selected ? "#70c0e8" : undefined,
+                }}
                 ellipsis
               >
                 {folder.name}
@@ -208,13 +228,20 @@ const FolderTree: React.FC<Props> = ({
             </>
           )}
           {canEdit && editingId !== folder.id && (
-            <Space size={2} style={{ marginLeft: 4 }} onClick={(e) => e.stopPropagation()}>
+            <Space
+              size={2}
+              style={{ marginLeft: 4 }}
+              onClick={(e) => e.stopPropagation()}
+            >
               <Tooltip title="Add subfolder">
                 <Button
                   type="text"
                   size="small"
                   icon={<FolderAddOutlined />}
-                  onClick={() => { setAddingIn(folder.id); setAddingName(''); }}
+                  onClick={() => {
+                    setAddingIn(folder.id);
+                    setAddingName("");
+                  }}
                 />
               </Tooltip>
               <Tooltip title="Rename">
@@ -222,7 +249,10 @@ const FolderTree: React.FC<Props> = ({
                   type="text"
                   size="small"
                   icon={<EditOutlined />}
-                  onClick={() => { setEditingId(folder.id); setEditingName(folder.name); }}
+                  onClick={() => {
+                    setEditingId(folder.id);
+                    setEditingName(folder.name);
+                  }}
                 />
               </Tooltip>
               <Popconfirm
@@ -232,7 +262,12 @@ const FolderTree: React.FC<Props> = ({
                 okButtonProps={{ danger: true }}
               >
                 <Tooltip title="Delete">
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                  />
                 </Tooltip>
               </Popconfirm>
             </Space>
@@ -250,7 +285,7 @@ const FolderTree: React.FC<Props> = ({
               onPressEnter={() => handleCreate(folder.id)}
               onBlur={() => handleCreate(folder.id)}
               maxLength={100}
-              style={{ width: '100%' }}
+              style={{ width: "100%" }}
             />
           </div>
         )}
@@ -263,18 +298,23 @@ const FolderTree: React.FC<Props> = ({
   const tree = buildTree(folders);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
+          display: "flex",
+          alignItems: "center",
           gap: 8,
-          padding: '12px 16px',
-          borderBottom: '1px solid #f0f0f0',
+          padding: "12px 16px",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
         }}
       >
         <Tooltip title="Back to cabinets">
-          <Button type="text" size="small" icon={<ArrowLeftOutlined />} onClick={onBack} />
+          <Button
+            type="text"
+            size="small"
+            icon={<ArrowLeftOutlined />}
+            onClick={onBack}
+          />
         </Tooltip>
         <Typography.Text strong ellipsis style={{ flex: 1, fontSize: 13 }}>
           {cabinetName}
@@ -285,33 +325,50 @@ const FolderTree: React.FC<Props> = ({
               type="primary"
               size="small"
               icon={<PlusOutlined />}
-              onClick={() => { setAddingIn('__root__'); setAddingName(''); }}
+              onClick={() => {
+                setAddingIn("__root__");
+                setAddingName("");
+              }}
             />
           </Tooltip>
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
         {/* All entries node */}
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            padding: '6px 8px 6px 16px',
-            cursor: 'pointer',
+            display: "flex",
+            alignItems: "center",
+            padding: "6px 8px 6px 16px",
+            cursor: "pointer",
             borderRadius: 6,
-            backgroundColor: dragOverId === 'root' ? '#d4edda' : isAllSelected ? '#e6f4ff' : undefined,
-            borderLeft: isAllSelected ? '3px solid #1677ff' : '3px solid transparent',
-            borderRight: dragOverId === 'root' ? '2px dashed #52c41a' : undefined,
-            transition: 'background 0.15s',
+            backgroundColor:
+              dragOverId === "root"
+                ? "rgba(82,196,26,0.18)"
+                : isAllSelected
+                  ? "rgba(112,192,232,0.15)"
+                  : undefined,
+            borderLeft: isAllSelected
+              ? "3px solid #70c0e8"
+              : "3px solid transparent",
+            borderRight:
+              dragOverId === "root" ? "2px dashed #52c41a" : undefined,
+            transition: "background 0.15s",
           }}
-          onClick={() => onSelect({ type: 'all' })}
-          onDragOver={(e) => handleDragOver(e, 'root')}
+          onClick={() => onSelect({ type: "all" })}
+          onDragOver={(e) => handleDragOver(e, "root")}
           onDragLeave={() => setDragOverId(null)}
           onDrop={(e) => handleDrop(e, null)}
         >
-          <InboxOutlined style={{ color: '#8c8c8c', marginRight: 6 }} />
-          <Typography.Text style={{ flex: 1, fontSize: 13, color: isAllSelected ? '#1677ff' : '#8c8c8c' }}>
+          <InboxOutlined style={{ color: "#8c8c8c", marginRight: 6 }} />
+          <Typography.Text
+            style={{
+              flex: 1,
+              fontSize: 13,
+              color: isAllSelected ? "#70c0e8" : "#8c8c8c",
+            }}
+          >
             All entries
           </Typography.Text>
         </div>
@@ -320,8 +377,8 @@ const FolderTree: React.FC<Props> = ({
         {tree.map((node) => renderNode(node, 0))}
 
         {/* New root-level folder input */}
-        {addingIn === '__root__' && (
-          <div style={{ padding: '4px 8px 4px 16px' }}>
+        {addingIn === "__root__" && (
+          <div style={{ padding: "4px 8px 4px 16px" }}>
             <Input
               ref={addInputRef}
               size="small"
@@ -331,13 +388,13 @@ const FolderTree: React.FC<Props> = ({
               onPressEnter={() => handleCreate(null)}
               onBlur={() => handleCreate(null)}
               maxLength={100}
-              style={{ width: '100%' }}
+              style={{ width: "100%" }}
             />
           </div>
         )}
 
         {folders.length === 0 && addingIn === null && canEdit && (
-          <div style={{ padding: '16px', textAlign: 'center' }}>
+          <div style={{ padding: "16px", textAlign: "center" }}>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               No folders yet. Click + to create one.
             </Typography.Text>

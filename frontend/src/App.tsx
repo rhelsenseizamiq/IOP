@@ -21,8 +21,12 @@ import VaultLayout from "./components/layout/VaultLayout";
 import RegistrationPage from "./pages/Registration/RegistrationPage";
 import PendingApprovalsPage from "./pages/Users/PendingApprovalsPage";
 import UnusedIPsPage from "./pages/UnusedIPs/UnusedIPsPage";
+import AssistantPage from "./pages/Assistant/AssistantPage";
+import FilesPage from "./pages/Files/FilesPage";
+import FilesLayout from "./components/layout/FilesLayout";
 
 const SharePage = lazy(() => import("./pages/Share/SharePage"));
+const UploadRequestPage = lazy(() => import("./pages/UploadRequest/UploadRequestPage"));
 const PasswordGeneratorPage = lazy(
   () => import("./pages/Vault/PasswordGeneratorPage"),
 );
@@ -34,6 +38,7 @@ const UnauthorizedPage: React.FC = () => (
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
+      background: "#1e1e28",
     }}
   >
     <Result
@@ -72,6 +77,7 @@ const App: React.FC = () => (
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                background: "#1e1e28",
               }}
             >
               <Spin size="large" />
@@ -84,6 +90,7 @@ const App: React.FC = () => (
             <Route path="/register" element={<RegistrationPage />} />
             <Route path="/unauthorized" element={<UnauthorizedPage />} />
             <Route path="/share/:token" element={<SharePage />} />
+            <Route path="/upload/:token" element={<UploadRequestPage />} />
 
             {/* Home page — portal selector */}
             <Route
@@ -136,6 +143,28 @@ const App: React.FC = () => (
                   <AppLayout>
                     <UnusedIPsPage />
                   </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/assistant"
+              element={
+                <ProtectedRoute requiredRole="Viewer">
+                  <AppLayout>
+                    <AssistantPage />
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/files"
+              element={
+                <ProtectedRoute requiredRole="Viewer">
+                  <FilesLayout>
+                    <FilesPage />
+                  </FilesLayout>
                 </ProtectedRoute>
               }
             />

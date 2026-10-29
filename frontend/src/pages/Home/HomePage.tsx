@@ -1,5 +1,5 @@
 import React from 'react';
-import { DatabaseOutlined, LockOutlined, ToolOutlined } from '@ant-design/icons';
+import { DatabaseOutlined, LockOutlined, ToolOutlined, FileOutlined } from '@ant-design/icons';
 
 interface PortalCard {
   title: string;
@@ -30,6 +30,13 @@ const PORTALS: PortalCard[] = [
     icon: <ToolOutlined style={{ fontSize: 36 }} />,
     path: '/it-tools/',
     color: '#f2a65a',
+  },
+  {
+    title: 'File Sharing',
+    description: 'Upload, store, and share files securely with encryption and malware scanning.',
+    icon: <FileOutlined style={{ fontSize: 36 }} />,
+    path: '/files',
+    color: '#c77dff',
   },
 ];
 
@@ -98,10 +105,10 @@ const HomePage: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gridTemplateColumns: 'repeat(4, 1fr)',
           gap: 20,
           width: '100%',
-          maxWidth: 860,
+          maxWidth: 1120,
         }}
       >
         {PORTALS.map((portal) => {

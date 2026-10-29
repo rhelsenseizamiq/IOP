@@ -23,6 +23,29 @@ class Settings(BaseSettings):
     # Password Vault
     VAULT_MASTER_KEY: str = ""
 
+    # File sharing — see app/core/file_vault.py, app/services/file_service.py.
+    # FILE_STORAGE_ROOT is this container's view of the bind-mounted storage
+    # directory; FILE_STORAGE_HOST_ROOT is the HOST's view of the exact same
+    # files, used only by app/core/clamav.py to tell clamd (which runs
+    # natively on the host, not in Docker) a path it can actually open.
+    # Deliberately NOT /opt — that volume is only 500MB on this host.
+    FILE_STORAGE_ROOT: str = "/app/file_storage"
+    FILE_STORAGE_HOST_ROOT: str = "/data/iop-file-storage"
+    MAX_FILE_SIZE_BYTES: int = 250 * 1024 * 1024  # 250 MB
+    # Real, externally-resolvable hostname — used to build share_url in
+    # ShareLinkResponse. Must be reachable from outside the bank's network
+    # for file-type share links to actually work for external recipients;
+    # verify this resolves externally at deploy time, don't assume.
+    PUBLIC_BASE_URL: str = "https://ipam.abb-bank.az"
+
+    # ClamAV — native clamd on the host (same reason Ollama is native, see
+    # OLLAMA_URL below: this host cannot pull Docker images from any
+    # registry, confirmed directly). Reached over the same Docker bridge
+    # gateway address.
+    CLAMD_HOST: str = "172.18.0.1"
+    CLAMD_PORT: int = 3310
+    CLAMD_TIMEOUT_SECONDS: float = 60.0
+
     # LDAP / Active Directory (optional)
     LDAP_ENABLED: bool = False
     LDAP_SERVER: str = "ldap://ldap.example.com"
@@ -61,6 +84,14 @@ class Settings(BaseSettings):
     VCENTER_PASSWORD: str = ""
     VCENTER_VERIFY_SSL: bool = False
 
+    # Offline AI assistant — Ollama running natively on the host (not in
+    # Docker; the server has no outbound internet, so the model files were
+    # pulled elsewhere and staged on /data). Reached over the iop-external
+    # bridge's own gateway address, never a public port.
+    OLLAMA_URL: str = "http://172.18.0.1:11434"
+    OLLAMA_CHAT_MODEL: str = "iop-llama3.1"
+    OLLAMA_EMBED_MODEL: str = "iop-nomic-embed"
+
     @field_validator("VAULT_MASTER_KEY")
     @classmethod
     def validate_vault_master_key(cls, v: str) -> str:
@@ -87,6 +118,22 @@ class Settings(BaseSettings):
             raise ValueError(
                 "JWT_SECRET_KEY is set to the insecure default value. "
                 "Generate a strong secret with: openssl rand -hex 32"
+            )
+        return v
+
+    @field_validator("INITIAL_ADMIN_PASSWORD")
+    @classmethod
+    def validate_initial_admin_password(cls, v: str) -> str:
+        # _seed_default_admin() in main.py only uses this on a genuinely
+        # fresh DB (upsert with $setOnInsert) — but if it were ever left at
+        # the placeholder and the DB got wiped/reseeded, a fresh deploy
+        # would silently create admin/changeme123 with no startup warning.
+        # Same pattern as JWT_SECRET_KEY/VAULT_MASTER_KEY above. See
+        # security review 2026-10-29.
+        if v == "changeme123":
+            raise ValueError(
+                "INITIAL_ADMIN_PASSWORD is set to the insecure default value. "
+                "Set a strong password in .env.api before first boot."
             )
         return v
 

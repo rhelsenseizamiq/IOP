@@ -14,6 +14,7 @@ import {
   ApiOutlined,
   UserAddOutlined,
   UnorderedListOutlined,
+  RobotOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -46,6 +47,7 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
     if (path === "/") return "/";
     if (path.startsWith("/ip-records")) return "/ip-records";
     if (path.startsWith("/unused-ips")) return "/unused-ips";
+    if (path.startsWith("/assistant")) return "/assistant";
     if (path.startsWith("/subnets")) return "/subnets";
     if (path.startsWith("/vrfs")) return "/vrfs";
     if (path.startsWith("/aggregates")) return "/aggregates";
@@ -70,6 +72,11 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
         key: "/dashboard",
         icon: <DashboardOutlined />,
         label: "Dashboard",
+      },
+      {
+        key: "/assistant",
+        icon: <RobotOutlined />,
+        label: "AI Assistant",
       },
       {
         key: "ipam-group",

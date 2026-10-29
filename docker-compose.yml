@@ -34,6 +34,18 @@ services:
     env_file: .env.api
     cap_add:
       - NET_RAW
+    volumes:
+      # AI assistant's Docker status capability reads this — written by
+      # scripts/docker_status_snapshot.sh on the HOST via cron, never by
+      # this container. Deliberately read-only and a plain file, not
+      # docker.sock: see docker_status_snapshot.sh's own header comment
+      # for why the socket itself is never mounted here.
+      - ./docker_status.json:/app/docker_status.json:ro
+      # File-sharing feature's encrypted blob storage — NOT ./ (that's the
+      # /opt/IOP app-root volume, too small for this); must persist across
+      # container recreates, hence the real host path, not an anonymous
+      # volume. matches FILE_STORAGE_ROOT in app/config.py.
+      - /data/iop-file-storage:/app/file_storage
     depends_on:
       mongodb:
         condition: service_healthy

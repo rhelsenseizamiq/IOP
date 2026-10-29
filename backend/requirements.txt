@@ -16,3 +16,11 @@ cryptography>=42.0
 ldap3>=2.9
 pyVmomi>=8.0
 dnspython>=2.6
+
+# File sharing (app/core/file_vault.py, app/core/clamav.py) — NOTE: the
+# running iop-api image is stale and never rebuilt from this file (see
+# README's critical deployment finding), so adding a line here is NOT
+# enough on its own — these must ALSO be `pip install`ed directly into the
+# running container as part of deployment, same as every other hot-patch.
+aiofiles>=23.2
+clamd>=1.0.2

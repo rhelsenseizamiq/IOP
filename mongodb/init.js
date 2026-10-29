@@ -149,6 +149,54 @@ db.assets.createIndex({
 
 print("✓ assets indexes created");
 
+// ── record_embeddings collection (offline AI assistant search index) ──────────
+db.createCollection("record_embeddings");
+db.record_embeddings.createIndex(
+  { source_collection: 1, source_id: 1 },
+  { unique: true },
+);
+
+print("✓ record_embeddings indexes created");
+
+// ── assistant_messages collection (per-user AI chat history, append-only) ─────
+db.createCollection("assistant_messages");
+db.assistant_messages.createIndex({
+  username: 1,
+  session_id: 1,
+  created_at: -1,
+});
+
+print("✓ assistant_messages indexes created");
+
+// ── assistant_sessions collection (per-user "current conversation" pointer) ───
+// _id is the username itself — default _id index already enforces
+// one document per user, no extra index needed.
+db.createCollection("assistant_sessions");
+
+print("✓ assistant_sessions collection created");
+
+// ── files collection (encrypted file sharing) ──────────────────────────────
+db.createCollection("files");
+db.files.createIndex({ created_at: -1 });
+db.files.createIndex({ created_by: 1 });
+db.files.createIndex({ filename: "text", description: "text" });
+db.files.createIndex({ expires_at: 1 });
+
+print("✓ files indexes created");
+
+// ── share_links collection (generic — password entries AND files) ─────────
+db.createCollection("share_links");
+db.share_links.createIndex({ token: 1 }, { unique: true });
+db.share_links.createIndex({ resource_type: 1, resource_id: 1 });
+db.share_links.createIndex({ created_by: 1 });
+db.share_links.createIndex({ expires_at: 1 });
+// Housekeeping purge only — expiry correctness is enforced in application
+// code via timezone-aware comparison; this index just stops the collection
+// growing forever once a share link is long dead.
+db.share_links.createIndex({ created_at: 1 }, { expireAfterSeconds: 7776000 }); // 90 days
+
+print("✓ share_links indexes created");
+
 print("─────────────────────────────────────────");
 print("MongoDB initialization complete.");
 print("─────────────────────────────────────────");

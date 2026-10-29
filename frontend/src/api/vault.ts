@@ -12,6 +12,7 @@ import type {
   PasswordEntryDetail,
   PasswordEntryUpdate,
 } from '../types/vault';
+import type { ShareLink, ShareLinkCreate } from '../types/share';
 
 interface PaginatedResponse<T> {
   items: T[];
@@ -75,4 +76,20 @@ export const passwordsApi = {
     apiClient.patch(`/passwords/${id}/move`, { folder_id: folderId }),
   delete: (id: string): Promise<AxiosResponse<void>> =>
     apiClient.delete(`/passwords/${id}`),
+};
+
+// Promoted from ShareModal.tsx's direct apiClient calls into a proper typed
+// module, matching every other resource's convention (was the one
+// exception — see FILE_SHARING_PLAN.md §4). Same paths, same payload
+// shape, no behavior change.
+export const sharesApi = {
+  listForPassword: (entryId: string): Promise<AxiosResponse<ShareLink[]>> =>
+    apiClient.get(`/passwords/${entryId}/shares`),
+  createForPassword: (
+    entryId: string,
+    data: ShareLinkCreate,
+  ): Promise<AxiosResponse<ShareLink>> =>
+    apiClient.post(`/passwords/${entryId}/shares`, data),
+  revokePasswordShare: (shareId: string): Promise<AxiosResponse<void>> =>
+    apiClient.delete(`/passwords/shares/${shareId}`),
 };

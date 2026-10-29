@@ -133,7 +133,8 @@ def create_app() -> FastAPI:
     # Include routers
     from app.routers import auth, users, ip_records, subnets, audit_logs, scan, stats
     from app.routers import vrfs, rirs, aggregates, ip_ranges, conflicts, integrations
-    from app.routers import cabinets, passwords, assets, folders
+    from app.routers import cabinets, passwords, assets, folders, assistant
+    from app.routers import files, shares
 
     api_prefix = "/api/v1"
     app.include_router(auth.router, prefix=api_prefix)
@@ -153,6 +154,9 @@ def create_app() -> FastAPI:
     app.include_router(passwords.router, prefix=api_prefix)
     app.include_router(assets.router, prefix=api_prefix)
     app.include_router(folders.router, prefix=api_prefix)
+    app.include_router(assistant.router, prefix=api_prefix)
+    app.include_router(files.router, prefix=api_prefix)
+    app.include_router(shares.router, prefix=api_prefix)
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict:

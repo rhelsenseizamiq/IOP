@@ -24,6 +24,21 @@ class IPRecordRepository(BaseRepository[IPRecord]):
         docs = await cursor.to_list(length=None)
         return {doc["ip_address"] for doc in docs}
 
+    async def find_occupied_addresses_by_subnet(self, subnet_id: str) -> set[str]:
+        """Returns ip_address strings recorded as `In Use` or `Reserved` for
+        this subnet — unlike find_used_addresses_by_subnet above, this
+        deliberately excludes records with status `Free` (an address with a
+        record but status Free IS available, not occupied). Used by the AI
+        assistant to compute real free-address data instead of asking the
+        LLM to guess — a small local model has no business inventing IP
+        addresses for an IPAM tool."""
+        cursor = self._col.find(
+            {"subnet_id": subnet_id, "status": {"$in": ["In Use", "Reserved"]}},
+            {"ip_address": 1},
+        )
+        docs = await cursor.to_list(length=None)
+        return {doc["ip_address"] for doc in docs}
+
     async def find_power_states(self, ip_addresses: list[str]) -> dict[str, Optional[str]]:
         """Returns {ip_address: power_state} for whichever of the given IPs
         already have a record — a single batched local-DB read, not a live

@@ -57,6 +57,13 @@ export interface DuplicatesSummary {
   hostname_records: number;
 }
 
+export interface AnomalyDigest {
+  generated_at: string | null;
+  summary: string | null;
+  counters: Record<string, number>;
+  status: "ok" | "error" | null;
+}
+
 export interface DashboardStats {
   total_ips: number;
   status_breakdown: Record<string, number>;
