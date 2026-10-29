@@ -143,8 +143,8 @@ A dedicated page (`/paloalto-check`, Operator+) for on-demand PaloAlto lookups �
 - **30-day PAN-OS traffic logs** — pulls PaloAlto's own historical traffic/session log entries for an address directly from the firewall (async job submission + polling) — genuine evidence of real recent network activity, distinct from IPAM's own check-history above.
 - **Subnets → right-click → Scan in PaloAlto** — bulk-checks every host address in a subnet with a live progress bar + trace log, auto-saves found addresses, refreshes utilization, and surfaces the **top security/NAT rules** actually referencing addresses in that subnet (reused from the scan's own match data — no extra PAN-OS calls).
 
-#### Nightly automated sync (Device42 + Zabbix + PaloAlto + vCenter + AI index + digest)
-All six run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
+#### Nightly automated sync (Device42 + Zabbix + PaloAlto + vCenter + AI index + digest + file cleanup)
+All seven run unattended via cron on the host (`ansible` user), independent of anyone using the UI:
 
 | Time | Job | Typical duration |
 |---|---|---|
@@ -154,8 +154,9 @@ All six run unattended via cron on the host (`ansible` user), independent of any
 | 3:10 AM | vCenter full sync | ~35 sec (~1,230 VMs across both vCenters) |
 | 3:30 AM | AI assistant index (subnets only) | first backfill: hours (see below); nightly after that: minutes |
 | 3:40 AM | Daily anomaly digest | ~1-3 min (at most one short LLM call) |
+| 3:50 AM | Expired-file cleanup (File Sharing) | seconds (DB sweep + a few blob deletes) |
 
-Device42 sets the baseline status from its own inventory `available` flag; Zabbix, PaloAlto, and vCenter run after and **only ever write `"In Use"`** (upgrade on live positive evidence, or skip) — neither can undo a correct Device42-derived `Free`, and none touches a `Reserved` record, so no job can produce conflicting data even if a run window ever grows to overlap. Zabbix hosts that are disabled *and* have no monitoring data in the last 6 months are treated as likely decommissioned and skipped entirely. PaloAlto's nightly sync only imports named single-host (`/32`) address objects — the closest equivalent to Device42's curated inventory — deliberately ignoring the live ARP table and wider-subnet objects (too noisy for an automated job; still available via the manual Discover/Import flow). All wrapper scripts (`scripts/run_device42_sync.sh`, `scripts/run_zabbix_sync.sh`, `scripts/run_paloalto_sync.sh`, `scripts/run_vcenter_sync.sh`) use a lock file that auto-clears after 2 hours if a prior run was killed by a crash/reboot, so a stuck lock can't silently block every future run. See `scripts/README.md` for the full operational writeup.
+Device42 sets the baseline status from its own inventory `available` flag; Zabbix, PaloAlto, and vCenter run after and **only ever write `"In Use"`** (upgrade on live positive evidence, or skip) — neither can undo a correct Device42-derived `Free`, and none touches a `Reserved` record, so no job can produce conflicting data even if a run window ever grows to overlap. Zabbix hosts that are disabled *and* have no monitoring data in the last 6 months are treated as likely decommissioned and skipped entirely. PaloAlto's nightly sync only imports named single-host (`/32`) address objects — the closest equivalent to Device42's curated inventory — deliberately ignoring the live ARP table and wider-subnet objects (too noisy for an automated job; still available via the manual Discover/Import flow). All wrapper scripts (`scripts/run_device42_sync.sh`, `scripts/run_zabbix_sync.sh`, `scripts/run_paloalto_sync.sh`, `scripts/run_vcenter_sync.sh`, `scripts/run_file_cleanup.sh`) use a lock file that auto-clears after 2 hours (30 min for the two short jobs — digest and file cleanup) if a prior run was killed by a crash/reboot, so a stuck lock can't silently block every future run. See `scripts/README.md` for the full operational writeup.
 
 **vCenter sync specifics** (`scripts/vcenter_sync.py`) — discovers every **powered-on** VM across both configured vCenters (`VCENTER_HOSTS`, shared read-only account) and writes, per guest IP:
 - **Hostname** — the guest's own DNS name as reported by VMware Tools, applied on both create and update. Falls back to the VM's vCenter inventory name whenever VMware Tools reports an unconfigured OS default like `localhost.localdomain` (common after a clone with no sysprep/cloud-init) — that placeholder was previously written straight into IP Records until this guard was added.
@@ -218,6 +219,16 @@ IP Records toolbar → **Show Duplicates** finds records sharing the exact same 
 - Per-entry reveal with 30-second auto-clear
 - Full audit trail for all vault operations
 - SuperAdmin has full vault access regardless of cabinet membership
+
+### File Sharing (`/files`, standalone portal — Viewer+ to browse, Operator+ to upload)
+- **Encrypted at rest** — per-file envelope encryption (random 256-bit DEK, wrapped via HKDF off `VAULT_MASTER_KEY`), chunked streaming so nothing is ever buffered whole in memory. Storage path is always `{uuid4()}.bin` under a date-sharded directory — the original filename never touches disk.
+- **ClamAV malware scanning** — native `clamd` on the host (same reason Ollama is native — this host cannot pull Docker images from any registry). Scan happens on the plaintext *before* encryption (ClamAV can't scan ciphertext); `scan_status: pending → clean` (now downloadable/shareable) / `infected` (deleted immediately, audit-logged) / `scan_failed` (stays blocked — a down scanner fails closed, never silently treated as clean).
+- **Mandatory, uploader-chosen expiry (max 30 days)** — every upload must include an `expires_at` the uploader themselves picks; this app never decides on its own that a file should be deleted. Enforced both client-side (date picker) and server-side (`validate_expires_at()` — rejects a missing, past, or >30-day-out value with `422`). A nightly cron job (`scripts/file_cleanup.sh`, 3:50 AM — see the sync table above) is the only thing that actually acts on an arrived expiry: deletes the DB record, then the on-disk encrypted blob, same ordering as every other delete path in this app. Files uploaded via an anonymous upload-request link (no UI step for the guest to pick a date) default to the full 30-day maximum.
+- **Generic share-link backend** (`ShareLink`, also used by the Password Vault above) — two link types:
+  - **Download links** — share an existing file with anyone who has the link; optional password, optional expiry, optional max-views (0 = unlimited).
+  - **Upload-request links** — generate a link that lets an anonymous guest push *one* file in, no login required; it lands owned by the link's creator, goes through the same scan/encryption pipeline, and is private to the owner (`visibility: owner_only`) until they decide otherwise.
+- **Self-destruct option** — `delete_after_first_download`, independent of a share link's own max-views, deletes the file itself right after its first successful download.
+- 250 MB max upload size; rate-limited separately for viewing (20/min) vs. the tighter anonymous-upload path (5/min).
 
 ### Self-Registration with Admin Approval
 - Public `/register` page — any visitor can submit a registration request

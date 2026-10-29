@@ -22,6 +22,8 @@ sources a `.env.*` file from `/opt/IOP/` on the server (`.env.device42`,
 | `run_build_embeddings.sh` | Same wrapper pattern, logs to `/opt/IOP/logs/build_embeddings/`. |
 | `anomaly_digest.py` | Writes a single `dashboard_digests` document read by the Dashboard's "Daily Anomaly Digest" card. Every number in it comes from the same queries `stats.py` already uses (Stale "In Use", duplicate hostnames) plus one new one (DR-tagged records vCenter has never confirmed) — the LLM's only job is turning already-correct counts into one short paragraph, never computing them itself. Skips the LLM call entirely if every count is zero. |
 | `run_anomaly_digest.sh` | Same wrapper pattern, logs to `/opt/IOP/logs/anomaly_digest/`, shorter 30-min stale-lock window (this job is quick — no data to enumerate, at most one short LLM call). |
+| `file_cleanup.py` | Deletes every File Sharing upload whose uploader-chosen `expires_at` has arrived (`FileService.cleanup_expired()` — DB record first, then the on-disk encrypted blob, same ordering as every other delete path). Only ever acts on a date a human explicitly set at upload time (required, capped at 30 days — see main README's "File Sharing" section); never decides on its own. |
+| `run_file_cleanup.sh` | Same wrapper pattern, logs to `/opt/IOP/logs/file_cleanup/`, same short 30-min stale-lock window as the anomaly digest. |
 | `scan_helper.py` | Small always-on service (systemd, see `iop-scan-helper.service`) that lets "Check Availability" ping out through the host's *real* `ens192`/`ens224` interfaces instead of the `iop-api` container's own bridge network. Bound only to the internal Docker bridge gateway, never a real NIC; shared-secret header auth. |
 | `iop-scan-helper.service` | systemd unit for `scan_helper.py`. |
 | `zabbix_reconcile.py` | One-time cleanup tool (kept for reference) — used once to fix IP records that `zabbix_sync.py` had incorrectly marked "In Use" before the disabled+stale exclusion existed. Dry-run by default; set `APPLY=1` to actually delete/update. Not part of any recurring job. |
@@ -49,6 +51,7 @@ from data other syncs already wrote.
 10 3 * * *  /opt/IOP/scripts/run_vcenter_sync.sh        # ~35 sec for ~1,230 VMs
 30 3 * * *  /opt/IOP/scripts/run_build_embeddings.sh    # see "Offline AI Assistant" below
 40 3 * * *  /opt/IOP/scripts/run_anomaly_digest.sh      # ~1-3 min, Dashboard's Daily Anomaly Digest
+50 3 * * *  /opt/IOP/scripts/run_file_cleanup.sh        # seconds, deletes expired File Sharing uploads
 ```
 
 Device42 runs first and sets the baseline status (`In Use`/`Free`) from its

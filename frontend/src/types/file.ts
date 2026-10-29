@@ -23,7 +23,9 @@ export interface FileUploadMeta {
   description?: string;
   tags?: string[];
   delete_after_first_download?: boolean;
-  expires_at?: string | null;
+  // Required — the uploader must explicitly choose when their own file
+  // gets deleted (max 30 days out; enforced again server-side).
+  expires_at: string;
 }
 
 export interface FileUpdate {

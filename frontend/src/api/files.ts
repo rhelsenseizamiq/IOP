@@ -21,7 +21,7 @@ export const filesApi = {
 
   upload: (
     file: File,
-    meta: FileUploadMeta = {},
+    meta: FileUploadMeta,
     onUploadProgress?: (percent: number) => void,
   ): Promise<AxiosResponse<FileEntry>> => {
     const form = new FormData();
@@ -31,7 +31,7 @@ export const filesApi = {
     if (meta.delete_after_first_download) {
       form.append("delete_after_first_download", "true");
     }
-    if (meta.expires_at) form.append("expires_at", meta.expires_at);
+    form.append("expires_at", meta.expires_at);
     return apiClient.post("/files", form, {
       headers: { "Content-Type": "multipart/form-data" },
       timeout: TRANSFER_TIMEOUT_MS,

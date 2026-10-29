@@ -88,7 +88,7 @@ async def upload_file(
     description: Optional[str] = Form(default=None),
     tags: list[str] = Form(default=[]),
     delete_after_first_download: bool = Form(default=False),
-    expires_at: Optional[datetime] = Form(default=None),
+    expires_at: datetime = Form(..., description="Required — max 30 days from now"),
     current_user: UserInToken = Depends(_OPERATOR_PLUS),
 ) -> FileResponse:
     service = _build_file_service()

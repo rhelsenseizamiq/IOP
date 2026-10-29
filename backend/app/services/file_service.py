@@ -2,7 +2,7 @@ import hashlib
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator, Optional
 
 import aiofiles
@@ -21,6 +21,34 @@ from app.schemas.file import FileResponse, FileUpdate
 logger = logging.getLogger(__name__)
 
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB — matches core/file_vault's own chunking
+
+# The uploader must explicitly pick a deletion date for their own file —
+# this app will never delete a file on its own authority without the
+# uploader's say-so (see cleanup_expired() below, which only ever acts on
+# an expires_at the uploader themselves set). Capped at 30 days so storage
+# doesn't grow unbounded from files nobody ever comes back to manage.
+MAX_FILE_RETENTION = timedelta(days=30)
+
+
+def validate_expires_at(expires_at: datetime) -> datetime:
+    """Required on every upload. Normalizes a naive datetime to UTC (Mongo
+    hands back naive datetimes on read — see the same fix already applied
+    to ShareLink/FileEntry/User — this runs on the raw Form value before it
+    round-trips through Mongo, so it needs its own normalization here)."""
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if expires_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="expires_at must be in the future",
+        )
+    if expires_at > now + MAX_FILE_RETENTION:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"expires_at cannot be more than {MAX_FILE_RETENTION.days} days from now",
+        )
+    return expires_at
 
 
 def _to_response(entry: FileEntry) -> FileResponse:
@@ -70,16 +98,21 @@ class FileService:
         username: str,
         user_role: str,
         client_ip: str,
+        expires_at: datetime,
         visibility: FileVisibility = FileVisibility.ORG,
         delete_after_first_download: bool = False,
-        expires_at: Optional[datetime] = None,
     ) -> tuple[FileResponse, str]:
         """Streams the upload to a temp plaintext staging file (never held
         whole in memory), enforcing the size cap as bytes arrive. Returns
         the created record PLUS the staging path — the caller (router) is
         responsible for scheduling process_scan_and_encrypt as a background
         task, since scanning a large file could plausibly exceed any
-        reasonable HTTP request timeout if done synchronously."""
+        reasonable HTTP request timeout if done synchronously.
+
+        expires_at is required — see validate_expires_at()'s docstring for
+        why: this app never deletes a file on its own authority, only on
+        the uploader's own say-so."""
+        expires_at = validate_expires_at(expires_at)
         os.makedirs(self._staging_dir(), exist_ok=True)
         staging_path = os.path.join(self._staging_dir(), f"{uuid.uuid4()}.tmp")
 

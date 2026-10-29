@@ -25,7 +25,7 @@ from app.schemas.share_link import (
     UploadLinkInfo,
     UploadRequestCreate,
 )
-from app.services.file_service import FileService
+from app.services.file_service import MAX_FILE_RETENTION, FileService
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +325,11 @@ class ShareService:
             user_role="n/a",
             client_ip=client_ip,
             visibility=FileVisibility.OWNER_ONLY,
+            # The anonymous guest has no UI step to pick a date (unlike the
+            # authenticated upload form), so this defaults to the maximum
+            # allowed retention rather than leaving it unset — every file,
+            # guest-uploaded or not, gets a real expiry someone can act on.
+            expires_at=datetime.now(timezone.utc) + MAX_FILE_RETENTION,
         )
         await self._shares.update(link.id, {"resource_id": response.id})
         await self._audit.log(

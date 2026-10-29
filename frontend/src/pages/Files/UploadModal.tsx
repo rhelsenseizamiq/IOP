@@ -45,7 +45,12 @@ const UploadModal: React.FC<Props> = ({ open, onClose, onUploaded }) => {
       message.warning("Please select a file first");
       return;
     }
-    const values = form.getFieldsValue();
+    let values: { description?: string; tags?: string; delete_after_first_download?: boolean; expires_at: dayjs.Dayjs };
+    try {
+      values = await form.validateFields();
+    } catch {
+      return; // form shows its own validation errors (expires_at is required)
+    }
     setUploading(true);
     setProgress(0);
     try {
@@ -54,10 +59,10 @@ const UploadModal: React.FC<Props> = ({ open, onClose, onUploaded }) => {
         {
           description: values.description || undefined,
           tags: values.tags
-            ? (values.tags as string).split(",").map((t: string) => t.trim()).filter(Boolean)
+            ? values.tags.split(",").map((t: string) => t.trim()).filter(Boolean)
             : [],
           delete_after_first_download: !!values.delete_after_first_download,
-          expires_at: values.expires_at ? dayjs(values.expires_at).toISOString() : null,
+          expires_at: values.expires_at.toISOString(),
         },
         setProgress,
       );
@@ -119,8 +124,33 @@ const UploadModal: React.FC<Props> = ({ open, onClose, onUploaded }) => {
           <Form.Item name="tags" label="Tags">
             <Input placeholder="Comma-separated, optional" />
           </Form.Item>
-          <Form.Item name="expires_at" label="Expires after (optional)">
-            <DatePicker showTime style={{ width: "100%" }} disabledDate={(d) => d && d < dayjs().startOf("day")} />
+          <Form.Item
+            name="expires_at"
+            label="Delete on"
+            required
+            tooltip="You choose when this file gets deleted — the app never deletes a file on its own. Max 30 days from today."
+            rules={[
+              { required: true, message: "Pick a deletion date — required for every upload" },
+              {
+                validator: (_, value: dayjs.Dayjs | undefined) => {
+                  if (!value) return Promise.resolve();
+                  if (value.isBefore(dayjs())) {
+                    return Promise.reject(new Error("Must be in the future"));
+                  }
+                  if (value.isAfter(dayjs().add(30, "day"))) {
+                    return Promise.reject(new Error("Cannot be more than 30 days from today"));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <DatePicker
+              showTime
+              style={{ width: "100%" }}
+              disabledDate={(d) => !d || d.endOf("day").isBefore(dayjs()) || d.startOf("day").isAfter(dayjs().add(30, "day"))}
+              placeholder="When should this file be deleted?"
+            />
           </Form.Item>
           <Form.Item name="delete_after_first_download" valuePropName="checked">
             <Checkbox>Delete after first download</Checkbox>
