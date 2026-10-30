@@ -224,9 +224,10 @@ IP Records toolbar → **Show Duplicates** finds records sharing the exact same 
 - **Encrypted at rest** — per-file envelope encryption (random 256-bit DEK, wrapped via HKDF off `VAULT_MASTER_KEY`), chunked streaming so nothing is ever buffered whole in memory. Storage path is always `{uuid4()}.bin` under a date-sharded directory — the original filename never touches disk.
 - **ClamAV malware scanning** — native `clamd` on the host (same reason Ollama is native — this host cannot pull Docker images from any registry). Scan happens on the plaintext *before* encryption (ClamAV can't scan ciphertext); `scan_status: pending → clean` (now downloadable/shareable) / `infected` (deleted immediately, audit-logged) / `scan_failed` (stays blocked — a down scanner fails closed, never silently treated as clean).
 - **Mandatory, uploader-chosen expiry (max 30 days)** — every upload must include an `expires_at` the uploader themselves picks; this app never decides on its own that a file should be deleted. Enforced both client-side (date picker) and server-side (`validate_expires_at()` — rejects a missing, past, or >30-day-out value with `422`). A nightly cron job (`scripts/file_cleanup.sh`, 3:50 AM — see the sync table above) is the only thing that actually acts on an arrived expiry: deletes the DB record, then the on-disk encrypted blob, same ordering as every other delete path in this app. Files uploaded via an anonymous upload-request link (no UI step for the guest to pick a date) default to the full 30-day maximum.
-- **Generic share-link backend** (`ShareLink`, also used by the Password Vault above) — two link types:
-  - **Download links** — share an existing file with anyone who has the link; optional password, optional expiry, optional max-views (0 = unlimited).
-  - **Upload-request links** — generate a link that lets an anonymous guest push *one* file in, no login required; it lands owned by the link's creator, goes through the same scan/encryption pipeline, and is private to the owner (`visibility: owner_only`) until they decide otherwise.
+- **Generic share-link backend** (`ShareLink`, also used by the Password Vault above) — two link types, both **live-verified end-to-end through real HTTPS, 2026-10-30** (not just checked at the endpoint-shape level):
+  - **Download links** (`GET /share/{token}` for metadata, `POST /share/{token}/download` for the bytes — download is a POST) — share an existing file with anyone who has the link; optional password, optional expiry, optional max-views (0 = unlimited). Confirmed live: sha256 of a downloaded file matches the original exactly, `max_views` cap cuts off the request right after the limit (410, not a silent extra download), a nonexistent token 404s, a revoked token 410s.
+  - **Upload-request links** (`POST /share/{token}/upload`) — generate a link that lets an anonymous guest push *one* file in, no login required; it lands owned by the link's creator, goes through the same scan/encryption pipeline, and is private to the owner (`visibility: owner_only`) until they decide otherwise. Confirmed live: a second upload attempt against the same link is rejected (410, "already been used"), and a download-type token on the upload endpoint (or vice versa) 404s rather than leaking the token's real type to a prober.
+  - Internal-network only for now — the links themselves only resolve from inside the bank's network; external reachability is a deliberately deferred, separate piece of work (nginx allowlist carve-out), not yet started.
 - **Self-destruct option** — `delete_after_first_download`, independent of a share link's own max-views, deletes the file itself right after its first successful download.
 - 250 MB max upload size; rate-limited separately for viewing (20/min) vs. the tighter anonymous-upload path (5/min).
 
@@ -758,6 +759,38 @@ All security fixes verified. All new features (folders, share links, password ge
 ---
 
 ## Changelog
+
+### v9.5.4 — File Sharing: mandatory expiry, nightly cleanup, share-link round trip verified live
+
+**Mandatory, uploader-chosen expiry.** Previously `expires_at` was an optional upload field with
+nothing ever acting on it once set — a file could sit forever regardless of what date was picked.
+Changed to a required field, validated server-side (`validate_expires_at()` in
+`file_service.py` — rejects a missing, past, or >30-days-out value with `422`) and enforced
+client-side (date picker `disabledDate` + form `rules`). The reasoning: this app should never be
+the one deciding a user's file gets deleted — the uploader decides, up front, capped at 30 days.
+Guest uploads via an anonymous upload-request link (no UI step to pick a date) default to the full
+30-day maximum. New `scripts/file_cleanup.py` + `run_file_cleanup.sh`, same wrapper pattern as the
+existing sync jobs, scheduled nightly at 3:50 AM — confirmed live via `crontab -l` and a real
+overnight run (`0 expired file(s)` logged cleanly when nothing was due).
+
+**Share-link round trip verified live, 2026-10-30** — the download-link and anonymous
+upload-link mechanisms had only been checked at the endpoint-shape level before. Ran the actual
+flow through real HTTPS on production: download link created → anonymous `GET` (metadata, no
+view-count change) → anonymous `POST .../download` (sha256 of the downloaded bytes matched the
+original exactly, this is what increments `view_count`) → `max_views` cap confirmed to cut off
+exactly at the limit (410 on the request past it) → revoked token confirmed 410 → nonexistent
+token confirmed 404. Upload-request link created → anonymous `POST .../upload` with no login
+landed owned by the link's creator, `visibility: owner_only` applied automatically, `expires_at`
+auto-set to 30 days out, scanned `clean` → second upload against the same link correctly rejected
+(410, "already been used") → a download-type token on the upload endpoint and an upload-type
+token on the download endpoint both 404 rather than confirming the other type's existence to a
+prober. All test files/links/credentials removed afterward; no leftover test data in the live
+`files`/`share_links` collections.
+
+**Still open**: external-network reachability for share links (the nginx allowlist carve-out for
+`/share/` and `/api/v1/share/`) — deliberately staged as separate, later work, not started.
+
+---
 
 ### v9.5.3 — Own-database IP/hostname lookup, retry on transient Ollama failures
 
