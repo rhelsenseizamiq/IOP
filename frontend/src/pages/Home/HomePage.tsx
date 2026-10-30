@@ -68,6 +68,13 @@ const HomePage: React.FC = () => {
         fontFamily: 'inherit',
       }}
     >
+      <style>{`
+        @keyframes betaPulse {
+          0%, 100% { box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 0 0 rgba(229,72,77,0.55); }
+          50% { box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 10px 3px rgba(229,72,77,0.55); }
+        }
+        .beta-ribbon { animation: betaPulse 2s ease-in-out infinite; }
+      `}</style>
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: 52 }}>
         {/* Logo row */}
@@ -165,6 +172,7 @@ const HomePage: React.FC = () => {
               {/* Beta ribbon — clipped to the card's rounded corner, not bleeding past its edge */}
               {portal.badge && (
                 <div
+                  className="beta-ribbon"
                   style={{
                     position: 'absolute',
                     top: 18,
@@ -179,7 +187,6 @@ const HomePage: React.FC = () => {
                     textTransform: 'uppercase',
                     letterSpacing: 1.5,
                     transform: 'rotate(-45deg)',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
                     pointerEvents: 'none',
                     zIndex: 2,
                   }}
