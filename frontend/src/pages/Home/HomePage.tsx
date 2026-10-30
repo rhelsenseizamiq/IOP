@@ -80,8 +80,8 @@ const HomePage: React.FC = () => {
         >
           <div
             style={{
-              width: 48,
-              height: 48,
+              width: 68,
+              height: 68,
               borderRadius: '50%',
               background: `${BRAND_COLOR}18`,
               border: `1.5px solid ${BRAND_COLOR}44`,
@@ -94,7 +94,7 @@ const HomePage: React.FC = () => {
             <UseAnimations
               animation={gridAnimation}
               interaction="hover-replay"
-              size={22}
+              size={44}
               strokeColor={BRAND_COLOR}
               fillColor={BRAND_COLOR}
             />
