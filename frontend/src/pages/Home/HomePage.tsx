@@ -17,6 +17,7 @@ interface PortalCard {
   animation: Animation;
   path: string;
   color: string;
+  badge?: string;
 }
 
 const PORTALS: PortalCard[] = [
@@ -33,6 +34,7 @@ const PORTALS: PortalCard[] = [
     animation: uploadCloudAnimation,
     path: '/files',
     color: '#c77dff',
+    badge: 'Beta',
   },
   {
     title: 'Password Manager',
@@ -140,6 +142,8 @@ const HomePage: React.FC = () => {
               onMouseEnter={() => setHovered(portal.path)}
               onMouseLeave={() => setHovered(null)}
               style={{
+                position: 'relative',
+                overflow: 'hidden',
                 background: '#252530',
                 border: `1px solid ${isHovered ? portal.color : 'rgba(255,255,255,0.08)'}`,
                 borderRadius: 12,
@@ -158,6 +162,32 @@ const HomePage: React.FC = () => {
                   : '0 2px 8px rgba(0,0,0,0.3)',
               }}
             >
+              {/* Beta ribbon — clipped to the card's rounded corner, not bleeding past its edge */}
+              {portal.badge && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 18,
+                    left: -46,
+                    width: 170,
+                    padding: '5px 0',
+                    background: '#e5484d',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    textAlign: 'center',
+                    textTransform: 'uppercase',
+                    letterSpacing: 1.5,
+                    transform: 'rotate(-45deg)',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+                    pointerEvents: 'none',
+                    zIndex: 2,
+                  }}
+                >
+                  {portal.badge}
+                </div>
+              )}
+
               {/* Icon circle */}
               <div
                 style={{
