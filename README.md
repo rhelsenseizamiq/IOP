@@ -760,6 +760,37 @@ All security fixes verified. All new features (folders, share links, password ge
 
 ## Changelog
 
+### v9.5.5 — Home page: portal reorder, animated icons, mobile + accessibility fixes
+
+**Portal card order** changed to IPAM Portal → File Sharing → Password Manager → IT Tools (was
+IPAM → Password Manager → IT Tools → File Sharing).
+
+**Animated icons** — all 4 portal cards and the "IOP Portal" header logo now use
+[`react-useanimations`](https://github.com/useAnimations/react-useanimations) (MIT, zero runtime
+deps beyond React) instead of static Ant Design icons: `database` for IPAM, `uploadCloud` for
+File Sharing, `lock` for Password Manager, `tool` for IT Tools, `grid` for the header logo.
+Flaticon's animated-icon catalog (the originally requested source) blocks automated/bot access
+and its icons need either an account or attribution — `react-useanimations` needed neither. The
+header logo badge was also resized/restyled to match each card's icon circle exactly (68px,
+tinted-color circle + border, colored icon) instead of a differently-styled solid-gradient square.
+Icons play on hover on desktop; since touch devices never fire hover events at all, the icons
+loop continuously instead on any device where `matchMedia('(hover: hover)')` is false — found by
+testing on a real phone after shipping the hover-only version, which silently never animated
+there.
+
+**Beta ribbon** — a pulsing red diagonal ribbon on the File Sharing card marks it as the newest,
+least-exercised feature (Stage 6 external access is still pending — see the File Sharing section
+above). Clipped to the card's rounded corner (`overflow: hidden`) rather than bleeding past the
+edge.
+
+**Mobile + accessibility fixes**: the portal grid now reflows 4 → 2 → 1 columns by screen width
+instead of a hardcoded 4-column grid that squished on narrow screens; the "OPEN →" hint and hover
+highlight now also trigger on keyboard focus (`onFocus`/`onBlur`), not just mouse hover, so
+Tab-navigating users get the same visual feedback; cards fade/slide in on page load, staggered
+70ms apart.
+
+---
+
 ### v9.5.4 — File Sharing: mandatory expiry, nightly cleanup, share-link round trip verified live
 
 **Mandatory, uploader-chosen expiry.** Previously `expires_at` was an optional upload field with
