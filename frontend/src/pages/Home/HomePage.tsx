@@ -18,6 +18,13 @@ const PORTALS: PortalCard[] = [
     color: '#63e2b7',
   },
   {
+    title: 'File Sharing',
+    description: 'Upload, store, and share files securely with encryption and malware scanning.',
+    icon: <FileOutlined style={{ fontSize: 36 }} />,
+    path: '/files',
+    color: '#c77dff',
+  },
+  {
     title: 'Password Manager',
     description: 'Shared team credential cabinets with per-cabinet encrypted storage.',
     icon: <LockOutlined style={{ fontSize: 36 }} />,
@@ -30,13 +37,6 @@ const PORTALS: PortalCard[] = [
     icon: <ToolOutlined style={{ fontSize: 36 }} />,
     path: '/it-tools/',
     color: '#f2a65a',
-  },
-  {
-    title: 'File Sharing',
-    description: 'Upload, store, and share files securely with encryption and malware scanning.',
-    icon: <FileOutlined style={{ fontSize: 36 }} />,
-    path: '/files',
-    color: '#c77dff',
   },
 ];
 
