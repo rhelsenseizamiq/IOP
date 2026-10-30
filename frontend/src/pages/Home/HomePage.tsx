@@ -1,7 +1,7 @@
 import React from 'react';
-import { AppstoreOutlined } from '@ant-design/icons';
 import UseAnimations from 'react-useanimations';
 import type { Animation } from 'react-useanimations';
+import gridAnimation from 'react-useanimations/lib/grid';
 import databaseAnimation from 'react-useanimations/lib/database';
 import uploadCloudAnimation from 'react-useanimations/lib/uploadCloud';
 import lockAnimation from 'react-useanimations/lib/lock';
@@ -86,7 +86,13 @@ const HomePage: React.FC = () => {
               flexShrink: 0,
             }}
           >
-            <AppstoreOutlined style={{ fontSize: 22, color: '#fff' }} />
+            <UseAnimations
+              animation={gridAnimation}
+              interaction="hover-replay"
+              size={22}
+              strokeColor="#fff"
+              fillColor="#fff"
+            />
           </div>
           <h2
             style={{
