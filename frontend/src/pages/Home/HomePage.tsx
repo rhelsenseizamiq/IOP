@@ -74,6 +74,20 @@ const HomePage: React.FC = () => {
           50% { box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 10px 3px rgba(229,72,77,0.55); }
         }
         .beta-ribbon { animation: betaPulse 2s ease-in-out infinite; }
+
+        @keyframes cardFadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .portal-card { animation: cardFadeIn 0.4s ease-out both; }
+
+        .portal-grid { grid-template-columns: repeat(4, 1fr); }
+        @media (max-width: 900px) {
+          .portal-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 520px) {
+          .portal-grid { grid-template-columns: 1fr; }
+        }
       `}</style>
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: 52 }}>
@@ -129,27 +143,31 @@ const HomePage: React.FC = () => {
 
       {/* Cards grid */}
       <div
+        className="portal-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
           gap: 20,
           width: '100%',
           maxWidth: 1120,
         }}
       >
-        {PORTALS.map((portal) => {
+        {PORTALS.map((portal, index) => {
           const isHovered = hovered === portal.path;
           return (
             <div
               key={portal.path}
+              className="portal-card"
               role="button"
               tabIndex={0}
               onClick={() => window.open(portal.path, '_blank')}
               onKeyDown={(e) => e.key === 'Enter' && window.open(portal.path, '_blank')}
               onMouseEnter={() => setHovered(portal.path)}
               onMouseLeave={() => setHovered(null)}
+              onFocus={() => setHovered(portal.path)}
+              onBlur={() => setHovered(null)}
               style={{
                 position: 'relative',
+                animationDelay: `${index * 70}ms`,
                 overflow: 'hidden',
                 background: '#252530',
                 border: `1px solid ${isHovered ? portal.color : 'rgba(255,255,255,0.08)'}`,
