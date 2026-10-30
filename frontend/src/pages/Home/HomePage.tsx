@@ -1,10 +1,16 @@
 import React from 'react';
-import { AppstoreOutlined, DatabaseOutlined, LockOutlined, ToolOutlined, FileOutlined } from '@ant-design/icons';
+import { AppstoreOutlined } from '@ant-design/icons';
+import UseAnimations from 'react-useanimations';
+import type { Animation } from 'react-useanimations';
+import databaseAnimation from 'react-useanimations/lib/database';
+import uploadCloudAnimation from 'react-useanimations/lib/uploadCloud';
+import lockAnimation from 'react-useanimations/lib/lock';
+import toolAnimation from 'react-useanimations/lib/tool';
 
 interface PortalCard {
   title: string;
   description: string;
-  icon: React.ReactNode;
+  animation: Animation;
   path: string;
   color: string;
 }
@@ -13,28 +19,28 @@ const PORTALS: PortalCard[] = [
   {
     title: 'IPAM Portal',
     description: 'Manage IP addresses, subnets, VRFs, and aggregates across your network.',
-    icon: <DatabaseOutlined style={{ fontSize: 36 }} />,
+    animation: databaseAnimation,
     path: '/dashboard',
     color: '#63e2b7',
   },
   {
     title: 'File Sharing',
     description: 'Upload, store, and share files securely with encryption and malware scanning.',
-    icon: <FileOutlined style={{ fontSize: 36 }} />,
+    animation: uploadCloudAnimation,
     path: '/files',
     color: '#c77dff',
   },
   {
     title: 'Password Manager',
     description: 'Shared team credential cabinets with per-cabinet encrypted storage.',
-    icon: <LockOutlined style={{ fontSize: 36 }} />,
+    animation: lockAnimation,
     path: '/vault',
     color: '#70c0e8',
   },
   {
     title: 'IT Tools',
     description: 'Handy online tools for developers — converters, encoders, generators, formatters and more.',
-    icon: <ToolOutlined style={{ fontSize: 36 }} />,
+    animation: toolAnimation,
     path: '/it-tools/',
     color: '#f2a65a',
   },
@@ -156,7 +162,13 @@ const HomePage: React.FC = () => {
                   marginBottom: 4,
                 }}
               >
-                {portal.icon}
+                <UseAnimations
+                  animation={portal.animation}
+                  interaction="hover-replay"
+                  size={44}
+                  strokeColor={portal.color}
+                  fillColor={portal.color}
+                />
               </div>
 
               <h4 style={{ color: '#fff', margin: 0, fontWeight: 600, fontSize: 16 }}>
