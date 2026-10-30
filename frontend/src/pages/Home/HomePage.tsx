@@ -7,6 +7,10 @@ import uploadCloudAnimation from 'react-useanimations/lib/uploadCloud';
 import lockAnimation from 'react-useanimations/lib/lock';
 import toolAnimation from 'react-useanimations/lib/tool';
 
+// Same badge treatment as each portal card's icon circle below — tinted
+// background + matching border, icon colored instead of white-on-solid.
+const BRAND_COLOR = '#18a058';
+
 interface PortalCard {
   title: string;
   description: string;
@@ -78,8 +82,9 @@ const HomePage: React.FC = () => {
             style={{
               width: 48,
               height: 48,
-              borderRadius: 12,
-              background: 'linear-gradient(135deg, #18a058 0%, #36ad6a 100%)',
+              borderRadius: '50%',
+              background: `${BRAND_COLOR}18`,
+              border: `1.5px solid ${BRAND_COLOR}44`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -90,8 +95,8 @@ const HomePage: React.FC = () => {
               animation={gridAnimation}
               interaction="hover-replay"
               size={22}
-              strokeColor="#fff"
-              fillColor="#fff"
+              strokeColor={BRAND_COLOR}
+              fillColor={BRAND_COLOR}
             />
           </div>
           <h2
