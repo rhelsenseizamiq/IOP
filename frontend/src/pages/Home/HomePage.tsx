@@ -55,6 +55,15 @@ const PORTALS: PortalCard[] = [
 const HomePage: React.FC = () => {
   const [hovered, setHovered] = React.useState<string | null>(null);
 
+  // Touch devices never fire hover events, so a hover-triggered Lottie icon
+  // simply never plays there — loop it continuously instead on those devices,
+  // keep the quieter hover-only behavior on desktop/mouse.
+  const supportsHover = React.useMemo(
+    () => typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches,
+    []
+  );
+  const iconInteraction = supportsHover ? 'hover-replay' : 'loop';
+
   return (
     <div
       style={{
@@ -116,7 +125,7 @@ const HomePage: React.FC = () => {
           >
             <UseAnimations
               animation={gridAnimation}
-              interaction="hover-replay"
+              interaction={iconInteraction}
               size={44}
               strokeColor={BRAND_COLOR}
               fillColor={BRAND_COLOR}
@@ -230,7 +239,7 @@ const HomePage: React.FC = () => {
               >
                 <UseAnimations
                   animation={portal.animation}
-                  interaction="hover-replay"
+                  interaction={iconInteraction}
                   size={44}
                   strokeColor={portal.color}
                   fillColor={portal.color}
