@@ -1,5 +1,5 @@
 import React from 'react';
-import { DatabaseOutlined, LockOutlined, ToolOutlined, FileOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, DatabaseOutlined, LockOutlined, ToolOutlined, FileOutlined } from '@ant-design/icons';
 
 interface PortalCard {
   title: string;
@@ -80,7 +80,7 @@ const HomePage: React.FC = () => {
               flexShrink: 0,
             }}
           >
-            <DatabaseOutlined style={{ fontSize: 22, color: '#fff' }} />
+            <AppstoreOutlined style={{ fontSize: 22, color: '#fff' }} />
           </div>
           <h2
             style={{
