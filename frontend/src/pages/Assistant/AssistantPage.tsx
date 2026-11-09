@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Typography,
   Input,
@@ -20,34 +20,32 @@ import {
   MessageOutlined,
   DeleteOutlined,
 } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import {
-  assistantApi,
-  type AssistantSourceItem,
-  type SessionSummary,
-} from "../../api/assistant";
+import { assistantApi, type SessionSummary } from "../../api/assistant";
+import { useAssistantChat } from "../../hooks/useAssistantChat";
 
 dayjs.extend(relativeTime);
-
-interface ChatMessage {
-  role: "user" | "assistant";
-  text: string;
-  sources?: AssistantSourceItem[];
-  error?: boolean;
-}
 
 const ACCENT = "#63e2b7";
 
 const AssistantPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(true);
-  const [startingNew, setStartingNew] = useState(false);
-  const [elapsedSec, setElapsedSec] = useState(0);
+  const {
+    messages,
+    setMessages,
+    input,
+    setInput,
+    loading,
+    historyLoading,
+    startingNew,
+    elapsedSec,
+    bottomRef,
+    send,
+    startNewConversation: startNewConversationBase,
+    openSource,
+    sourceChipLabel,
+  } = useAssistantChat();
+
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
@@ -56,7 +54,6 @@ const AssistantPage: React.FC = () => {
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null,
   );
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   const refreshSessions = useCallback(() => {
     assistantApi
@@ -67,117 +64,36 @@ const AssistantPage: React.FC = () => {
       });
   }, []);
 
-  // Loads this user's own current conversation on every mount — the
-  // backend is the source of truth, so navigating away and back (or
-  // refreshing the page) picks the conversation back up instead of
-  // starting empty. Scoped server-side to the logged-in user's own
-  // token; no user can load another's history or sessions this way.
+  // The hook already loads this user's current conversation into
+  // `messages` on mount — this just also captures the session_id for
+  // the sidebar's "which conversation is open" highlight, and loads the
+  // sessions list itself (the hook doesn't need either for the popup).
   useEffect(() => {
     assistantApi
       .history()
-      .then((res) => {
-        setCurrentSessionId(res.data.session_id);
-        setMessages(
-          res.data.messages.map((m) => ({
-            role: m.role,
-            text: m.text,
-            sources: m.sources ?? undefined,
-          })),
-        );
-      })
+      .then((res) => setCurrentSessionId(res.data.session_id))
       .catch(() => {
-        /* non-critical — an empty conversation is a safe fallback */
-      })
-      .finally(() => setHistoryLoading(false));
+        /* non-critical */
+      });
     refreshSessions();
   }, [refreshSessions]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
-
-  useEffect(() => {
-    if (!loading) return;
-    setElapsedSec(0);
-    const interval = setInterval(() => setElapsedSec((s) => s + 1), 1000);
-    return () => clearInterval(interval);
-  }, [loading]);
-
-  const openSource = (item: AssistantSourceItem): void => {
-    if (
-      (item.source_collection === "ip_records" ||
-        item.source_collection === "live_check") &&
-      item.metadata.ip_address
-    ) {
-      navigate(
-        `/ip-records?search=${encodeURIComponent(String(item.metadata.ip_address))}`,
-      );
-    } else if (item.source_collection === "subnets" && item.metadata.cidr) {
-      navigate(
-        `/subnets?search=${encodeURIComponent(String(item.metadata.cidr))}`,
-      );
-    }
-  };
-
-  // A live-IP-check result has one source PER checked source (Device42,
-  // Zabbix, PaloAlto, vSphere) — all sharing the same ip_address, so
-  // falling back to metadata.ip_address for the chip label would show
-  // the same IP repeated 2-4 times (a real reported bug). Show which
-  // source it came from instead.
-  const sourceChipLabel = (item: AssistantSourceItem): string => {
-    if (item.source_collection === "live_check" && item.metadata.source) {
-      return String(item.metadata.source);
-    }
-    return String(
-      item.metadata.ip_address ?? item.metadata.cidr ?? item.source_id,
-    );
-  };
-
-  const send = async (): Promise<void> => {
-    const question = input.trim();
-    // historyLoading guard avoids a race: if history resolves after a
-    // message was already sent, its setMessages(...) would overwrite
-    // the just-added optimistic message instead of merging with it.
-    if (!question || loading || historyLoading) return;
-    setInput("");
-    setMessages((m) => [...m, { role: "user", text: question }]);
-    setLoading(true);
-    try {
-      const res = await assistantApi.ask(question);
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", text: res.data.answer, sources: res.data.sources },
-      ]);
-      refreshSessions(); // updates this conversation's preview/timestamp in the sidebar
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text:
-            axiosErr.response?.data?.detail ??
-            "The assistant is unavailable right now.",
-          error: true,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const startNewConversation = async (): Promise<void> => {
-    setStartingNew(true);
-    try {
-      await assistantApi.newSession();
-      setMessages([]);
+    const ok = await startNewConversationBase();
+    if (ok) {
       setCurrentSessionId(null);
       refreshSessions();
-    } catch {
+    } else {
       message.error("Couldn't start a new conversation. Try again shortly.");
-    } finally {
-      setStartingNew(false);
     }
+  };
+
+  // Wraps the hook's send() to also refresh the sidebar's conversation
+  // preview/timestamp — something only this page's sidebar needs, so it
+  // isn't part of the shared hook itself.
+  const sendAndRefresh = async (): Promise<void> => {
+    await send();
+    refreshSessions();
   };
 
   const switchToSession = async (sessionId: string): Promise<void> => {
@@ -507,7 +423,7 @@ const AssistantPage: React.FC = () => {
             onPressEnter={(e) => {
               if (!e.shiftKey) {
                 e.preventDefault();
-                send();
+                sendAndRefresh();
               }
             }}
             placeholder="Ask about subnets…"
@@ -517,7 +433,7 @@ const AssistantPage: React.FC = () => {
           <Button
             type="primary"
             icon={<SendOutlined />}
-            onClick={send}
+            onClick={sendAndRefresh}
             loading={loading}
             disabled={!input.trim() || historyLoading}
           />
