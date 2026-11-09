@@ -1,7 +1,7 @@
 import ipaddress
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.core.database import get_database
 from app.dependencies.auth import require_role
 from app.models.ip_record import Environment
-from app.models.user import UserInToken
+from app.models.user import Role, UserInToken
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.embedding_repository import EmbeddingRepository
 from app.repositories.ip_record_repository import IPRecordRepository
@@ -480,6 +480,97 @@ async def _hostname_lookup(db, hostname_fragment: str) -> list:
         {"hostname": {"$regex": re.escape(hostname_fragment), "$options": "i"}},
     ).limit(10)
     return await cursor.to_list(length=10)
+
+
+# ── Person lookup — "who is jsmith", "tell me about user Jane Smith" —
+# everyone signs in via LDAP, so a name/username is as natural a thing to
+# ask this assistant about as a hostname or IP. Deliberately gated to
+# Administrator+/SuperAdmin only: the real /users endpoints this data
+# comes from (app/routers/users.py) are themselves Administrator-only —
+# role, email, lockout status, and cabinet membership are exactly the
+# fields a Viewer/Operator can't see anywhere else in this app, and
+# answering them here for any logged-in user would be a real RBAC bypass
+# via a side channel, not a feature. A Viewer/Operator asking the same
+# question just falls through to the general fallback, same as today —
+# no special handling, no leak, no behavior change for them. ───────────
+
+_PERSON_QUERY_RE = re.compile(
+    r"\b(?:who is|tell me about (?:user|person)"
+    r"|user (?:info(?:rmation)?|details?) (?:about|on|for)"
+    r"|what(?:'s| is) the role of|last login (?:of|for))\s+"
+    # Starts with a letter OR digit — real usernames here are often
+    # purely numeric employee IDs (e.g. "008162"), found live testing
+    # "who is 008162"; a letter-only first character silently excluded
+    # every one of them.
+    r"([a-zA-Z0-9][a-zA-Z0-9._\- ]{1,48})",
+    re.IGNORECASE,
+)
+
+
+def _can_lookup_people(role: Role) -> bool:
+    """The real security boundary for this feature — pulled out as its
+    own named function (rather than an inline tuple check in ask())
+    specifically so it has a direct unit test (test_assistant_person_lookup.py)
+    without needing to mock a full chat request/Ollama/DB round trip just
+    to verify a Viewer/Operator never gets Administrator-only user data."""
+    return role in (Role.ADMINISTRATOR, Role.SUPER_ADMIN)
+
+
+def _extract_person_query(question: str) -> Optional[str]:
+    m = _PERSON_QUERY_RE.search(question)
+    if not m:
+        return None
+    return m.group(1).strip().rstrip("?.,!'s").strip()
+
+
+async def _person_lookup(db, name_fragment: str) -> list[dict]:
+    escaped = re.escape(name_fragment)
+    cursor = db["users"].find(
+        {"$or": [
+            {"full_name": {"$regex": escaped, "$options": "i"}},
+            {"username": {"$regex": escaped, "$options": "i"}},
+        ]},
+    ).limit(10)
+    return await cursor.to_list(length=10)
+
+
+async def _person_blurb(user_doc: dict, db) -> str:
+    """Real, computed facts about one account — role/email/lockout from
+    the user doc itself, cabinet membership and recent activity from a
+    couple of cheap follow-up queries. Never left to the LLM: it has no
+    reliable access to this data anyway (nothing about users is embedded
+    — see build_embeddings.py's scope), so this is the only accurate
+    source, same "build the real sentence in code" principle as every
+    other deterministic branch here."""
+    username = user_doc["username"]
+    parts = [
+        f"{user_doc.get('full_name', username)} ({username})",
+        f"— role: {user_doc.get('role', 'Viewer')},",
+        f"auth: {user_doc.get('auth_type', 'local')},",
+        # Matches the User model's own default (approval_status: str =
+        # "approved") — without this default, a doc that predates this
+        # field (e.g. the seeded admin account) reads as None, which
+        # compared "not approved" would wrongly call a perfectly normal
+        # account "pending approval".
+        f"status: {'pending approval' if user_doc.get('approval_status', 'approved') != 'approved' else ('active' if user_doc.get('is_active', True) else 'deactivated')}.",
+    ]
+    last_login = user_doc.get("last_login")
+    parts.append(f"Last login: {last_login.isoformat()}." if last_login else "Never logged in.")
+
+    cabinets = await db["cabinets"].find(
+        {"member_usernames": username}, {"name": 1},
+    ).to_list(length=20)
+    if cabinets:
+        parts.append("Cabinets: " + ", ".join(c["name"] for c in cabinets) + ".")
+
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    activity_count = await db["audit_logs"].count_documents(
+        {"username": username, "created_at": {"$gte": since}},
+    )
+    if activity_count:
+        parts.append(f"{activity_count} audit-logged action(s) in the last 30 days.")
+
+    return " ".join(parts)
 
 
 def _own_record_blurb(record) -> str:
@@ -957,6 +1048,31 @@ async def ask(
                 f"{bare_ip}\" if you want a live lookup across Device42/"
                 f"Zabbix/PaloAlto/vSphere instead."
             )
+            sources = []
+
+    elif (
+        _can_lookup_people(current_user.role)
+        and _extract_person_query(effective_question)
+    ):
+        # "who is jsmith" — Administrator+/SuperAdmin only, see
+        # _person_lookup's own comment for why. A Viewer/Operator asking
+        # the identical question never reaches this branch at all (the
+        # `and` short-circuits on role before the regex even matters) and
+        # falls through exactly as it did before this feature existed.
+        fragment = _extract_person_query(effective_question)
+        matches = await _person_lookup(db, fragment)
+        if matches:
+            lines = [await _person_blurb(u, db) for u in matches]
+            answer = "\n".join(lines)
+            sources = [
+                SearchResultItem(
+                    text=line, score=1.0, source_collection="users",
+                    source_id=str(u["_id"]), metadata={"username": u["username"]},
+                )
+                for u, line in zip(matches, lines)
+            ]
+        else:
+            answer = f"No user account matching \"{fragment}\" was found in this IPAM."
             sources = []
 
     elif not mentioned and _extract_hostname_query(effective_question):
