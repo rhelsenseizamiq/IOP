@@ -169,15 +169,17 @@ Device42 sets the baseline status from its own inventory `available` flag; Zabbi
 - **Environment → DR** — auto-tagged **only** when the VM's own vCenter datacenter/cluster name genuinely says so (whole-word `dr`/`disaster`, so it doesn't collide with vSphere's own "DRS" cluster feature name). Deliberately does **not** infer DR from which vCenter a VM was discovered on — an earlier version treated every VM on the Baku site's vCenter as DR, which broke on real shared workloads that vCenter also hosts (e.g. an NTP `timeserver`). On an existing record this only ever *promotes* to DR, never overwrites a weaker classification.
 - Template VMs and generic template-named hosts are not filtered out today — a real vCenter template that's powered on with an IP will sync like any other VM; worth a policy decision if that turns out to be noisy.
 
-#### Offline AI Assistant (`/assistant`, Viewer+)
+#### IOP AI Assistant (`/assistant`, Viewer+; also a floating popup on every page)
 
-A local LLM chat/search assistant — no data ever leaves this server. Two small models run via **Ollama as a native systemd service on the host** (not in Docker — the server has no outbound internet, so the `ollama/ollama` image couldn't be pulled there; the binary was transferred and installed directly instead), bound only to `172.18.0.1:11434` (the `iop-external` Docker bridge's own gateway address) — reachable from `iop-api`, unreachable from `ens192`/`ens224` or anywhere outside the host.
+A local LLM chat/search assistant — no data ever leaves this server. Two small models run via **Ollama as a native systemd service on the host** (not in Docker — the server has no outbound internet, so the `ollama/ollama` image couldn't be pulled there; the binary was transferred and installed directly instead), bound only to `172.18.0.1:11434` (the `iop-external` Docker bridge's own gateway address) — reachable from `iop-api`, unreachable from `ens192`/`ens224` or anywhere outside the host. Open it from the sidebar, the full `/assistant` page, or the small floating button in the bottom-right corner of every page (a compact popup sharing the same conversation and chat logic — `useAssistantChat()` — rather than a second implementation).
 
-- **`iop-llama3.1`** (Llama 3.1 8B Instruct, Q4_K_M) — answers questions, grounded only in retrieved context; explicitly told to say so rather than guess when the context doesn't have the answer.
+- **`iop-llama3.1`** (Llama 3.1 8B Instruct, Q4_K_M) — grounded in retrieved context for anything about this portal's own data (explicitly told to say so rather than guess when the context doesn't have the answer); answers a genuinely general question (not about this portal's data) normally from its own knowledge instead of refusing.
 - **`iop-nomic-embed`** (nomic-embed-text) — turns a short record blurb into a 768-dim vector for semantic search. Embeddings are L2-normalized at write time so a plain dot product *is* cosine similarity — similarity search runs entirely as a MongoDB aggregation (`$zip`/`$map`/`$multiply`/`$sum`) in `embedding_repository.py`, with no vector-database dependency (the running container's image can't be rebuilt on this no-internet host, so any new Python package has to be avoidable rather than hot-installed).
 - **`POST /api/v1/assistant/search`** — pure semantic search, no generation; fast, doesn't touch the chat model.
-- **`POST /api/v1/assistant/ask`** — a question naming a specific IP/CIDR is resolved **deterministically** first (regex + exact/containment lookup against the real `subnets` collection), never left to embedding-search ranking — verified that an exact CIDR match can score *lower* than an unrelated subnet, since the embedding model mostly captures the blurb template, not the digits. If that question is asking about free/available addresses, the answer is built **entirely in code** from real `ip_records` data (occupied vs. usable, per-subnet), with **no LLM call at all** — after two different LLM hallucinations on this exact task (a false "ranging from X to Y" claim, then outright confused text), the model was removed from this path rather than prompt-tuned further. Otherwise, it falls back to semantic search + a grounded chat answer, same as before.
-- **Per-user conversation history** — every exchange is saved (`assistant_messages`, scoped strictly by the caller's own username from their auth token) and reloaded on every page visit, so refreshing or navigating away and back picks the conversation back up. A left sidebar lists every past conversation (preview + relative time); click one to resume it. **New Conversation** points forward to a fresh session without deleting anything; **delete** (per conversation, with a confirm prompt) is the one explicit, user-triggered exception that actually removes data.
+- **`POST /api/v1/assistant/ask`** — a question naming a specific IP/CIDR is resolved **deterministically** first (regex + exact/containment lookup against the real `subnets` collection), never left to embedding-search ranking — verified that an exact CIDR match can score *lower* than an unrelated subnet, since the embedding model mostly captures the blurb template, not the digits. If that question is asking about free/available addresses, the answer is built **entirely in code** from real `ip_records` data (occupied vs. usable, per-subnet), with **no LLM call at all** — after two different LLM hallucinations on this exact task (a false "ranging from X to Y" claim, then outright confused text), the model was removed from this path rather than prompt-tuned further. A question naming an **environment** instead of a specific subnet ("free ip from test subnet") resolves the same way across every subnet tagged that environment. A requested count in the question ("show me 5 free ips…") is respected rather than always returning the fixed default. Otherwise, it falls back to semantic search + a grounded chat answer, same as before.
+- **Person lookup** ("who is 008162", "last login for Jane Smith") — role, LDAP/local auth, status, last login, cabinet membership, recent activity — all real, computed data, never guessed. Gated to **Administrator+/SuperAdmin only**, the same access tier as `/users` itself; a Viewer/Operator asking the identical question gets no special handling at all, since this is real user data that page already restricts — answering it for everyone would be an RBAC bypass via a side channel, not a feature.
+- **Server/Docker status and fleet-wide questions** — reuses the exact same real data the Dashboard's System Health card and other stats already show (see `app/services/system_health.py` and `compute_dashboard_stats()`), never a second, slightly different computation.
+- **Per-user conversation history** — every exchange is saved (`assistant_messages`, scoped strictly by the caller's own username from their auth token) and reloaded on every page visit, so refreshing or navigating away and back picks the conversation back up. A left sidebar (full page only) lists every past conversation (preview + relative time); click one to resume it. **New Conversation** points forward to a fresh session without deleting anything; **delete** (per conversation, with a confirm prompt) is the one explicit, user-triggered exception that actually removes data.
 
 **Hardware constraint (important):** this host's CPU is an Intel Xeon E5-2670 (~2012, no AVX2/FMA). Measured: chat generation ~0.18 tokens/second, prompt *processing* ~1.1 tokens/second — a real RAG call pays both costs, so a short answer can take 1-3+ minutes. This is a genuine hardware ceiling, not a tuning gap. Consequences baked into the design:
 - The indexer (`scripts/build_embeddings.py`, nightly at 3:30 AM) covers **subnets only** — full IP-record indexing (tens of thousands of records) would take many hours and would pin all 8 cores on the same VM serving live IPAM traffic. Revisit if this workload ever moves to modern-CPU hardware.
@@ -763,6 +765,128 @@ All security fixes verified. All new features (folders, share links, password ge
 ---
 
 ## Changelog
+
+### v9.5.7 — AI Assistant: environment/person lookup, general questions, rebrand
+
+**New assistant capabilities**, all deterministic/real-data where correctness
+matters (never LLM-guessed):
+- **Free addresses by environment** — "free ip from test subnet", "free ip
+  in production subnets" resolves which real subnets are tagged that
+  environment (`Environment` enum: Production/Staging/UAT/QA/Test/
+  Development/DR/Lab) and reports computed free counts. 1 match → the same
+  answer as naming it by CIDR; 2–5 → each listed with its real count; 6+
+  (Production has 1,417) → an explicit "too many to list here" instead of
+  silently refusing or enumerating hundreds of subnets on CPU-only hardware.
+- **A requested count is now respected** — "show me 5 free ips from
+  172.31.3.0/24" previously ignored the "5" entirely and always returned
+  the hardcoded default of 30. Fixed via a shared helper (`_requested_free_count`)
+  used by both the named-subnet and environment-subnet branches.
+- **Person lookup** ("who is 008162", "last login for Jane Smith") — role,
+  LDAP/local auth, active/pending/deactivated status, last login, cabinet
+  membership, 30-day activity count. Gated to Administrator+/SuperAdmin
+  only, matching `/users`' own access tier exactly — a Viewer/Operator
+  asking the identical question gets no special handling, since this is
+  real user data that page already restricts; answering it for everyone
+  would have been a genuine RBAC bypass via a side channel. Found and
+  fixed two real bugs live-testing this before shipping: usernames here
+  are largely numeric employee IDs (008162, 002343…) which a
+  letter-only-first-character regex silently excluded entirely, and the
+  seeded `admin` account's doc predates the `approval_status` field,
+  which a missing default mislabeled as "pending approval" instead of
+  "active".
+- **General (non-IPAM) questions** — previously every fallback answer was
+  hard-restricted to "answer ONLY from the context records below", so a
+  genuinely general question (capital of a country, basic math, writing
+  help) got the same "I cannot access the information required" refusal
+  as an unanswerable IPAM question. The system prompt now branches on
+  intent: IPAM-flavored questions still must answer strictly from context
+  and say so explicitly when it's insufficient (unchanged — never invents
+  IPAM facts), anything else is answered normally from the model's own
+  knowledge.
+
+**Rebrand + new UI surface**: renamed "AI Assistant" → **"IOP AI
+Assistant"** everywhere (sidebar, full page, popup) and replaced the
+static robot icon in those headers with an animated CPU icon
+(`react-useanimations`, already used elsewhere in the app) — fits the
+theme given this assistant's whole backstory is running on this server's
+own CPU. New **floating widget** (bottom-right, every page once logged
+in, hidden on the Assistant page itself) opens a compact chat popup in
+place — same conversation, nothing to navigate away from — sharing its
+core chat logic with the full page via a new `useAssistantChat()` hook
+instead of a second implementation. Conversation-history browsing (past
+sessions list, switch, delete) stays page-only; the popup continues the
+current conversation and links out to the full page for anything more.
+
+Verified live against production data for every case above (including
+the person-lookup role gate, which needed a dedicated unit test —
+`_can_lookup_people()` — since creating a real throwaway account to
+test with is correctly treated as a production user-management action,
+not something to script around). 59/59 backend tests pass (49 existing
++ 10 new).
+
+---
+
+### v9.5.6 — Dashboard System Health + nightly backups, bundle/dependency cleanup
+
+**Nightly MongoDB + File Sharing backup** (`scripts/run_backup.sh`,
+4:00 AM) — `mongodump --archive --gzip` via `docker exec iop-mongodb`
+(that container's own root credentials, no separate credential file)
+plus a `tar.gz` of the File Sharing blob storage, both to
+`/data/iop-backups/` (14-day retention). Status shows up in the
+Dashboard's existing Data Sync Health card like every other nightly job.
+Verified properly, not just "the file exists": `gzip -t`, a real
+`mongorestore --dryRun`, and a `tar tzf` listing all confirmed valid.
+
+**Dashboard System Health card** — live host RAM/CPU (`/proc`, polled
+every 30s) and real disk usage per mount (`/`, `/data`, `/opt`), plus
+every Docker container's status/health. Backed by a new
+`GET /stats/system-health` (no DB query at all — just `/proc` and a
+host-written JSON snapshot). The AI assistant's existing "server
+status"/"docker status" logic was factored out into a shared
+`app/services/system_health.py` so both read through the same functions
+instead of two slightly different implementations.
+
+Found and fixed a real, pre-existing bug while wiring this up: the
+Docker-status snapshot was bind-mounted into `iop-api` as a single
+**file**. The snapshot script replaces it via atomic `mv` on every run,
+which rotates the file's inode — a file bind mount stays pinned to
+whatever inode existed when the container started and silently stops
+seeing updates after that (same bug class as an earlier cert-rotation
+issue). Confirmed live that the container was serving a snapshot frozen
+at its last restart; fixed by mounting the **directory**
+(`/opt/IOP/status`) instead, verified afterward that a host-side update
+is visible inside the container with no restart needed.
+
+**Dashboard decluttered** — reported as "too much information, unclear":
+Data Sync Health's counters were one run-on string
+("1655 subnets matched · 35 ips created · …", reading like raw log
+output) — now individually scannable chips. PaloAlto Activity and Stale
+"In Use" Records both used `marginLeft: auto` to push a timestamp/badge
+to the far right of a full-width card, leaving a large dead gap on a
+wide monitor — capped each list's width instead.
+
+**Frontend bundle**: route-based code-splitting (`React.lazy`) cut the
+main chunk from 2.19MB to 997KB (655KB → 318KB gzip) — every page except
+Login/Home was a static import before, landing all of them (including
+`recharts`, only used by the Dashboard) in one chunk every visitor
+downloaded regardless of which pages they'd open.
+
+**Dependencies**: `npm audit` found 13 known frontend vulnerabilities —
+9 fixed (including axios, this app's own HTTP client) within already-
+declared semver ranges, no code changes needed. `pip-audit` found 38
+known backend vulnerabilities across 5 packages — fixed `python-jose`
+(this app's actual JWT library) and `python-multipart` (file-upload
+parsing) via the same offline-wheel pattern used for every other
+network-blocked package here, tested in an isolated throwaway container
+(real login, real JWT verify, a real multipart upload+delete) before
+touching the live one. Deliberately left `fastapi`/`starlette` (51 minor
+versions behind, a real breaking-change risk needing its own dedicated
+pass) and `pytest`'s major-version fix (coupled to a `pytest-asyncio`
+upgrade with real behavior-change risk, for a CVE that only matters on a
+multi-user host — this app's pytest only ever runs inside a single-
+purpose `docker exec`) for a deliberate, separately-tested upgrade later.
+
+---
 
 ### v9.5.5 — Home page: portal reorder, animated icons, mobile + accessibility fixes
 

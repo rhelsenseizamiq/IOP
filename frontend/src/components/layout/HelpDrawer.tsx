@@ -41,6 +41,9 @@ import {
   LinkOutlined,
   UnorderedListOutlined,
   InboxOutlined,
+  RobotOutlined,
+  CloudUploadOutlined,
+  KeyOutlined,
 } from "@ant-design/icons";
 
 const { Text, Paragraph } = Typography;
@@ -106,9 +109,27 @@ const ALL_SECTIONS: Section[] = [
           </li>
           <li>
             <Text strong>Data Sync Health</Text> — freshness of the nightly
-            Device42, Zabbix, and PaloAlto full-inventory syncs (last run time,
-            duration, counters); flags a source as "Overdue" past 27 hours since
-            its last run
+            Device42, Zabbix, PaloAlto, and vCenter full-inventory syncs, the
+            AI Assistant's search index, and the nightly database backup
+            (last run time, duration, real counters); flags a source as
+            "Overdue" past 27 hours since its last run
+          </li>
+          <li>
+            <DesktopOutlined /> <Text strong>System Health</Text>{" "}
+            <Badge
+              count="New"
+              style={{
+                backgroundColor: "#52c41a",
+                fontSize: 10,
+                height: 16,
+                lineHeight: "16px",
+                padding: "0 5px",
+              }}
+            />{" "}
+            — live host RAM/CPU and real disk usage per mount, plus every
+            Docker container's status/health. Refreshes automatically every
+            30 seconds; the same data the AI Assistant's "server status"/
+            "docker status" answers use.
           </li>
           <li>
             <SafetyCertificateOutlined /> <Text strong>PaloAlto Activity</Text>{" "}
@@ -1343,6 +1364,185 @@ const ALL_SECTIONS: Section[] = [
           style={{ fontSize: 12 }}
           message='Roles are hierarchical for what they include, but "higher" is not strictly "more of the same" — Operator trades edit rights on IPAM data for hands-on scanning tools, and even Administrator is deliberately locked out of Integrations actions.'
         />
+      </>
+    ),
+  },
+
+  // ─── IOP AI Assistant ─────────────────────────────────────────────────────
+  {
+    key: "ai-assistant",
+    icon: <RobotOutlined />,
+    title: "IOP AI Assistant",
+    badge: "New",
+    content: (
+      <>
+        <Paragraph>
+          A chat assistant that answers questions about this IPAM's own data —
+          entirely <Text strong>offline</Text> (Llama 3.1 8B running locally on
+          this server via Ollama; no question or answer ever leaves it). Open
+          it from the <Text strong>sidebar</Text>, the full{" "}
+          <Text strong>/assistant</Text> page, or the small floating button in
+          the bottom-right corner of every page (a compact popup — the same
+          conversation, without leaving where you are).
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
+          <li>
+            <Text strong>Free address lookup</Text> — "free ip in
+            172.31.4.0/24", "show me 5 free ips from 10.1.2.0/24". The exact
+            count and addresses are always real, computed data — the model
+            never invents or guesses an IP. A specific count in the question
+            is respected; otherwise up to 30 are shown.
+          </li>
+          <li>
+            <Text strong>Free addresses by environment</Text> — "free ip from
+            test subnet", "free ip in production subnets" — resolves which
+            subnets are tagged that environment and reports real free counts.
+            Too many matches (e.g. Production) gets a count instead of a slow,
+            sprawling list — ask about one specific subnet instead.
+          </li>
+          <li>
+            <Text strong>IP / hostname lookup</Text> — "what do we know about
+            172.31.3.166", "what's the IP for db-prod-3" — this app's own
+            record first, not a live external check (ask it to{" "}
+            <Text strong>check</Text> an IP for that).
+          </li>
+          <li>
+            <Text strong>Who is X</Text>{" "}
+            <RoleBadge role="Administrator" /> — "who is 008162", "last login
+            for Jane Smith" — role, LDAP/local auth, active status, last
+            login, cabinet membership, recent activity. Gated to
+            Administrator+/SuperAdmin, the same tier as the Users page itself
+            — a Viewer/Operator asking the same question gets no special
+            treatment, since this is real user data that page already
+            restricts.
+          </li>
+          <li>
+            <Text strong>Server &amp; Docker status</Text> — "server status",
+            "docker status" — live RAM/CPU from this host and every
+            container's real status/health, same data behind the Dashboard's
+            System Health card.
+          </li>
+          <li>
+            <Text strong>Fleet-wide questions</Text> — duplicate hostnames,
+            stale "In Use" records, subnets over their alert threshold,
+            nightly sync health — the same trusted numbers the Dashboard
+            itself shows, never recomputed differently.
+          </li>
+          <li>
+            <Text strong>General questions</Text> — anything not about this
+            portal's own data (general knowledge, quick math, writing help)
+            is answered normally from the model's own knowledge, not refused.
+          </li>
+        </ul>
+        <Alert
+          type="info"
+          showIcon
+          style={{ fontSize: 12 }}
+          message="This runs on CPU-only hardware, not a GPU — an answer can take anywhere from a couple of seconds to a few minutes. That's expected, not a hang."
+        />
+      </>
+    ),
+  },
+
+  // ─── File Sharing ─────────────────────────────────────────────────────────
+  {
+    key: "file-sharing",
+    icon: <CloudUploadOutlined />,
+    title: "File Sharing",
+    badge: "Beta",
+    content: (
+      <>
+        <Paragraph>
+          A standalone file-sharing portal (<Text strong>/files</Text>,
+          separate from the Password Vault) — upload, store, and share files
+          with built-in encryption and malware scanning.
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
+          <li>
+            <Text strong>Encrypted at rest</Text> — every file gets its own
+            random 256-bit key before it ever touches disk.
+          </li>
+          <li>
+            <Text strong>Malware scanning</Text> — every upload is scanned
+            before it becomes downloadable or shareable; a file that fails
+            the scan (or can't be scanned at all) stays blocked, never
+            silently treated as safe <RoleBadge role="Operator" /> to upload.
+          </li>
+          <li>
+            <Text strong>Mandatory expiry</Text> — the uploader must choose a
+            deletion date at upload time, capped at 30 days. This app never
+            decides on its own that a file should be deleted; a nightly job
+            only ever acts on a date a human already set.
+          </li>
+          <li>
+            <Text strong>Download share links</Text> — share a file with
+            anyone who has the link; optional password, expiry, and
+            max-views.
+          </li>
+          <li>
+            <Text strong>Guest upload links</Text> — generate a link that
+            lets someone with no IOP account push exactly one file in; it
+            lands owned by the link's creator, private until they decide
+            otherwise, through the same scan/encryption pipeline as any other
+            upload.
+          </li>
+          <li>
+            <Text strong>Self-destruct</Text> — optionally delete a file
+            right after its first successful download, independent of a
+            share link's own view limit.
+          </li>
+        </ul>
+        <Alert
+          type="warning"
+          showIcon
+          style={{ fontSize: 12 }}
+          message="Beta: share links currently only work from inside the bank's network — external access is planned but not yet enabled."
+        />
+      </>
+    ),
+  },
+
+  // ─── Password Vault ───────────────────────────────────────────────────────
+  {
+    key: "password-vault",
+    icon: <KeyOutlined />,
+    title: "Password Vault",
+    content: (
+      <>
+        <Paragraph>
+          A separate shared-credential store (<Text strong>/vault</Text>),
+          organised by <Text strong>cabinets</Text> (team/project groupings
+          with their own membership) and <Text strong>folders</Text> within a
+          cabinet.
+        </Paragraph>
+        <ul style={{ paddingLeft: 20, marginBottom: 12 }}>
+          <li>
+            <Text strong>Cabinets</Text> <RoleBadge role="Administrator" /> to
+            create/manage membership — any Viewer+ can see and use a cabinet
+            they're a member of; <Text strong>SuperAdmin</Text> bypasses
+            cabinet membership entirely and can delete one.
+          </li>
+          <li>
+            <Text strong>Password entries</Text>{" "}
+            <RoleBadge role="Operator" /> to create/edit/move/delete within a
+            cabinet they belong to; Viewer+ members can reveal and copy.
+          </li>
+          <li>
+            <Text strong>Password generator</Text> — a standalone tool (
+            <Text strong>/vault/generator</Text>) for creating a strong
+            password without needing to save it anywhere.
+          </li>
+          <li>
+            <Text strong>Share links</Text> — the same generic link mechanism
+            File Sharing uses, with an optional password on the link itself;
+            a shared credential is still only ever reachable from inside the
+            bank's network.
+          </li>
+          <li>
+            Every reveal, copy, and edit is written to the{" "}
+            <Text strong>Audit Log</Text>.
+          </li>
+        </ul>
       </>
     ),
   },
