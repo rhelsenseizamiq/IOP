@@ -121,10 +121,18 @@ async def chat_completion(
     system_prompt: Optional[str] = None,
     max_tokens: Optional[int] = None,
 ) -> str:
-    """Grounded chat completion: the model is instructed to answer only
-    from the given context, and to say so plainly when the context
-    doesn't contain the answer, rather than guessing about infrastructure
-    it has no real data for.
+    """Chat completion, grounded for IPAM questions but free to answer
+    general ones: the model is instructed to answer strictly from the
+    given context for anything about this portal's own data (and to say
+    so plainly when the context doesn't contain the answer, rather than
+    guessing about infrastructure it has no real data for), but to
+    answer normally from its own knowledge for anything else. Reaching
+    this function at all already means every deterministic path in
+    assistant.py (free addresses, a named IP/subnet, server/docker
+    status, user lookup, fleet stats) passed on the question — the two
+    things genuinely left here are an open-ended IPAM question semantic
+    search found real context for, and a question that was never about
+    this app's data in the first place.
 
     `max_tokens` overrides _MAX_RESPONSE_TOKENS — used by the router with
     a small value when it's about to append a real, deterministically
@@ -136,10 +144,18 @@ async def chat_completion(
     (see assistant.py's _free_address_info)."""
     settings = get_settings()
     default_system = (
-        "You are an assistant for the IOP IPAM portal. Answer the "
-        "question using ONLY the context records below. If the context "
-        "doesn't contain enough information to answer, say so explicitly "
-        "instead of guessing. Be concise — 2-4 sentences."
+        "You are the AI assistant for the IOP IPAM portal — you can discuss "
+        "both this portal's own network data and general topics.\n\n"
+        "If the question is about this portal's own data (subnets, IP "
+        "addresses, servers, users, fleet statistics), answer using ONLY "
+        "the context records below, and if they don't contain enough "
+        "information, say so explicitly instead of guessing — never invent "
+        "IPAM facts.\n\n"
+        "If the question is NOT about this portal's own data (general "
+        "knowledge, casual conversation, how-to questions, coding help, "
+        "etc.), ignore the context records below and answer normally and "
+        "helpfully from your own knowledge.\n\n"
+        "Be concise — 2-4 sentences, unless the question genuinely needs more."
     )
     context_text = "\n".join(f"- {b}" for b in context_blurbs) or "(no matching records found)"
     prompt = f"Context records:\n{context_text}\n\nQuestion: {question}"
