@@ -411,10 +411,9 @@ const DashboardPage: React.FC = () => {
                 const health = syncHealth(s);
                 const meta = SYNC_HEALTH_META[health];
                 const c = s?.counters ?? {};
-                const summary = Object.entries(c)
-                  .filter(([, v]) => v > 0)
-                  .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
-                  .join(" · ");
+                const counterEntries = Object.entries(c).filter(
+                  ([, v]) => v > 0,
+                );
                 return (
                   <Col key={source} xs={24} sm={12} lg={8}>
                     <div
@@ -477,17 +476,36 @@ const DashboardPage: React.FC = () => {
                             {s.error}
                           </Typography.Text>
                         )}
-                        {summary && (
-                          <Typography.Text
-                            type="secondary"
+                        {counterEntries.length > 0 && (
+                          <div
                             style={{
-                              fontSize: 11,
-                              display: "block",
-                              marginTop: 2,
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: 4,
+                              marginTop: 6,
                             }}
                           >
-                            {summary}
-                          </Typography.Text>
+                            {counterEntries.map(([k, v]) => (
+                              <span
+                                key={k}
+                                style={{
+                                  fontSize: 10.5,
+                                  lineHeight: "16px",
+                                  color: DIM,
+                                  background: "rgba(255,255,255,0.05)",
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  borderRadius: 4,
+                                  padding: "1px 6px",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                <span style={{ color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
+                                  {v.toLocaleString()}
+                                </span>{" "}
+                                {k.replace(/_/g, " ")}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -546,24 +564,30 @@ const DashboardPage: React.FC = () => {
 
                 <Col xs={24} sm={12} lg={6}>
                   <Typography.Text strong style={{ fontSize: 12 }}>
-                    CPU load ({systemHealth.server.cpu_count} cores)
+                    CPU ({systemHealth.server.cpu_count} cores)
                   </Typography.Text>
-                  <div style={{ fontSize: 13, marginTop: 10 }}>
-                    {systemHealth.server.load_1m}{" "}
-                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                      (1m)
-                    </Typography.Text>
-                    {"  ·  "}
-                    {systemHealth.server.load_5m}{" "}
-                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                      (5m)
-                    </Typography.Text>
-                    {"  ·  "}
-                    {systemHealth.server.load_15m}{" "}
-                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                      (15m)
-                    </Typography.Text>
-                  </div>
+                  <Progress
+                    percent={Math.min(
+                      Math.round(
+                        (systemHealth.server.load_1m /
+                          systemHealth.server.cpu_count) *
+                          100,
+                      ),
+                      100,
+                    )}
+                    size="small"
+                    strokeColor={utilColor(
+                      (systemHealth.server.load_1m /
+                        systemHealth.server.cpu_count) *
+                        100,
+                    )}
+                    format={(p) => `${p}%`}
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    load {systemHealth.server.load_1m} (1m) ·{" "}
+                    {systemHealth.server.load_5m} (5m) ·{" "}
+                    {systemHealth.server.load_15m} (15m)
+                  </Typography.Text>
                 </Col>
 
                 {systemHealth.docker.disk.map((d) => (
@@ -776,7 +800,12 @@ const DashboardPage: React.FC = () => {
                   </Typography.Text>
                 ) : (
                   <div
-                    style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      maxWidth: 520,
+                    }}
                   >
                     {stats.paloalto_activity.recent_checks.map((c, i) => (
                       <div
@@ -856,6 +885,7 @@ const DashboardPage: React.FC = () => {
                   display: "flex",
                   flexDirection: "column",
                   gap: 4,
+                  maxWidth: 560,
                 }}
               >
                 {stats.stale_in_use.samples.slice(0, 8).map((s) => (
