@@ -22,6 +22,8 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import UseAnimations from "react-useanimations";
+import cpuAnimation from "react-useanimations/lib/cpu";
 import { assistantApi, type SessionSummary } from "../../api/assistant";
 import { useAssistantChat } from "../../hooks/useAssistantChat";
 
@@ -281,8 +283,15 @@ const AssistantPage: React.FC = () => {
         >
           <div>
             <Typography.Title level={4} style={{ margin: 0 }}>
-              <RobotOutlined style={{ marginRight: 8, color: ACCENT }} />
-              AI Assistant
+              <span style={{ marginRight: 8, verticalAlign: "middle", display: "inline-block" }}>
+                <UseAnimations
+                  animation={cpuAnimation}
+                  interaction="hover-replay"
+                  size={22}
+                  strokeColor={ACCENT}
+                />
+              </span>
+              IOP AI Assistant
             </Typography.Title>
             <Typography.Text type="secondary">
               Ask questions about subnet inventory — answered from this IPAM's

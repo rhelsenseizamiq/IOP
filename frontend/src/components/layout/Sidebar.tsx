@@ -14,8 +14,9 @@ import {
   ApiOutlined,
   UserAddOutlined,
   UnorderedListOutlined,
-  RobotOutlined,
 } from "@ant-design/icons";
+import UseAnimations from "react-useanimations";
+import cpuAnimation from "react-useanimations/lib/cpu";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { usersApi } from "../../api/users";
@@ -75,8 +76,15 @@ const Sidebar: React.FC<Props> = ({ collapsed }) => {
       },
       {
         key: "/assistant",
-        icon: <RobotOutlined />,
-        label: "AI Assistant",
+        icon: (
+          <UseAnimations
+            animation={cpuAnimation}
+            interaction="hover-replay"
+            size={16}
+            strokeColor="currentColor"
+          />
+        ),
+        label: "IOP AI Assistant",
       },
       {
         key: "ipam-group",

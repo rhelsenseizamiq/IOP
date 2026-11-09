@@ -17,6 +17,8 @@ import {
   RobotOutlined,
   ExpandOutlined,
 } from "@ant-design/icons";
+import UseAnimations from "react-useanimations";
+import cpuAnimation from "react-useanimations/lib/cpu";
 import { useAuth } from "../../context/AuthContext";
 import { useAssistantChat } from "../../hooks/useAssistantChat";
 
@@ -98,8 +100,15 @@ const FloatingAssistantCat: React.FC = () => {
             }}
           >
             <Typography.Text strong style={{ color: BRAND_COLOR }}>
-              <RobotOutlined style={{ marginRight: 8 }} />
-              AI Assistant
+              <span style={{ marginRight: 8, verticalAlign: "middle", display: "inline-block" }}>
+                <UseAnimations
+                  animation={cpuAnimation}
+                  interaction="hover-replay"
+                  size={18}
+                  strokeColor={BRAND_COLOR}
+                />
+              </span>
+              IOP AI Assistant
             </Typography.Text>
             <Space size={4}>
               <Tooltip title="Open full page">
@@ -243,10 +252,10 @@ const FloatingAssistantCat: React.FC = () => {
         </div>
       )}
 
-      <Tooltip title={open ? "" : "Ask AI Assistant"} placement="left">
+      <Tooltip title={open ? "" : "Ask IOP AI Assistant"} placement="left">
         <button
           onClick={() => setOpen((o) => !o)}
-          aria-label="Open AI Assistant"
+          aria-label="Open IOP AI Assistant"
           className="assistant-cat-badge"
           style={{
             position: "fixed",
