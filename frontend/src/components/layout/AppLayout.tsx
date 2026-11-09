@@ -38,7 +38,11 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       >
         <div
           style={{
-            height: 52,
+            // Matches antd's default Header height (controlHeight * 2 =
+            // 64px) exactly, so the border under this block lines up with
+            // the border under the top header bar instead of leaving a
+            // visible 12px seam/step where the two meet.
+            height: 64,
             display: "flex",
             alignItems: "center",
             justifyContent: collapsed ? "center" : "flex-start",
