@@ -64,6 +64,46 @@ export interface AnomalyDigest {
   status: "ok" | "error" | null;
 }
 
+export interface ServerResources {
+  ram_total_gb: number;
+  ram_used_gb: number;
+  ram_available_gb: number;
+  ram_used_pct: number | null;
+  cpu_count: number;
+  load_1m: number;
+  load_5m: number;
+  load_15m: number;
+  error?: string;
+}
+
+export interface ContainerStatus {
+  name: string;
+  status: string;
+  health: string;
+  started_at: string;
+}
+
+export interface DiskUsage {
+  mount: string;
+  size_bytes: number;
+  used_bytes: number;
+  avail_bytes: number;
+  used_pct: number;
+}
+
+export interface DockerStatus {
+  generated_at: string | null;
+  is_stale: boolean;
+  containers: ContainerStatus[];
+  disk: DiskUsage[];
+  error: string | null;
+}
+
+export interface SystemHealth {
+  server: ServerResources;
+  docker: DockerStatus;
+}
+
 export interface DashboardStats {
   total_ips: number;
   status_breakdown: Record<string, number>;

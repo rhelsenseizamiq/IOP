@@ -35,12 +35,20 @@ services:
     cap_add:
       - NET_RAW
     volumes:
-      # AI assistant's Docker status capability reads this — written by
+      # AI assistant's "docker status"/"server status" capabilities and
+      # the Dashboard's System Health card both read this — written by
       # scripts/docker_status_snapshot.sh on the HOST via cron, never by
-      # this container. Deliberately read-only and a plain file, not
-      # docker.sock: see docker_status_snapshot.sh's own header comment
-      # for why the socket itself is never mounted here.
-      - ./docker_status.json:/app/docker_status.json:ro
+      # this container (see that script's header comment for why
+      # docker.sock itself is never mounted here). Mounting the DIRECTORY,
+      # not the file, is deliberate: the snapshot script replaces the file
+      # via an atomic `mv` on every run, which rotates the file's inode —
+      # a single-FILE bind mount stays pinned to whatever inode existed
+      # when this container started and silently stops seeing updates
+      # after that (same class of bug already hit once with cert rotation,
+      # see feedback_docker_single_file_bind_mount_cert_rotation.md).
+      # Directory mounts don't have this problem: entries are resolved by
+      # name on every access.
+      - ./status:/app/status:ro
       # File-sharing feature's encrypted blob storage — NOT ./ (that's the
       # /opt/IOP app-root volume, too small for this); must persist across
       # container recreates, hence the real host path, not an anonymous

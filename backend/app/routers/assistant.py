@@ -1,7 +1,5 @@
 import ipaddress
-import json
 import logging
-import os
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -16,7 +14,7 @@ from app.models.user import UserInToken
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.embedding_repository import EmbeddingRepository
 from app.repositories.ip_record_repository import IPRecordRepository
-from app.services import ai_service
+from app.services import ai_service, system_health
 # Reusing the exact same live-lookup functions the real Check Availability
 # feature already uses (ip_records.py), rather than re-implementing
 # Device42/Zabbix/PaloAlto/vSphere API calls a second time here. This is
@@ -536,30 +534,15 @@ _SERVER_STATUS_RE = re.compile(
 
 
 def _server_status() -> str:
-    mem: dict[str, int] = {}
-    try:
-        with open("/proc/meminfo") as f:
-            for line in f:
-                key, _, rest = line.partition(":")
-                try:
-                    mem[key] = int(rest.strip().split()[0])
-                except (ValueError, IndexError):
-                    continue
-        with open("/proc/loadavg") as f:
-            load1, load5, load15 = f.read().split()[:3]
-    except OSError as exc:
-        return f"Couldn't read server resource stats: {exc}"
-
-    total_gb = mem.get("MemTotal", 0) / 1024 / 1024
-    available_gb = mem.get("MemAvailable", 0) / 1024 / 1024
-    used_gb = total_gb - available_gb
-    cpu_count = os.cpu_count() or 1
+    r = system_health.get_server_resources()
+    if "error" in r:
+        return f"Couldn't read server resource stats: {r['error']}"
 
     return (
-        f"RAM: {used_gb:.1f} GB used / {total_gb:.1f} GB total "
-        f"({available_gb:.1f} GB available). "
-        f"CPU load average across {cpu_count} cores: {load1} (1 min), "
-        f"{load5} (5 min), {load15} (15 min)."
+        f"RAM: {r['ram_used_gb']:.1f} GB used / {r['ram_total_gb']:.1f} GB total "
+        f"({r['ram_available_gb']:.1f} GB available). "
+        f"CPU load average across {r['cpu_count']} cores: {r['load_1m']} (1 min), "
+        f"{r['load_5m']} (5 min), {r['load_15m']} (15 min)."
     )
 
 
@@ -586,40 +569,18 @@ _DOCKER_STATUS_RE = re.compile(
     re.IGNORECASE,
 )
 
-_DOCKER_STATUS_PATH = "/app/docker_status.json"
-# If the snapshot is older than this, the cron job itself is probably
-# broken (or was never deployed) — say so explicitly rather than quietly
-# serve stale status as if it were live.
-_DOCKER_STATUS_STALE_SECONDS = 600
-
-
 def _docker_status() -> str:
-    try:
-        with open(_DOCKER_STATUS_PATH) as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        return (
-            "No Docker status snapshot is available yet — the host-side "
-            "cron job (scripts/docker_status_snapshot.sh) may not be "
-            "deployed or hasn't run yet."
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        return f"Couldn't read the Docker status snapshot: {exc}"
+    d = system_health.get_docker_status()
+    if d.get("error") and not d["containers"]:
+        return f"Couldn't read the Docker status snapshot: {d['error']}"
 
-    generated_at = data.get("generated_at")
+    generated_at = d.get("generated_at")
     staleness_note = ""
-    if generated_at:
-        try:
-            age = (datetime.now(timezone.utc) - datetime.fromisoformat(generated_at)).total_seconds()
-            if age > _DOCKER_STATUS_STALE_SECONDS:
-                staleness_note = (
-                    f" (WARNING: this snapshot is {int(age // 60)} minutes "
-                    f"old — the cron job may have stopped running)"
-                )
-        except ValueError:
-            pass
+    if d["is_stale"] and generated_at:
+        age_min = int((datetime.now(timezone.utc) - datetime.fromisoformat(generated_at)).total_seconds() // 60)
+        staleness_note = f" (WARNING: this snapshot is {age_min} minutes old — the cron job may have stopped running)"
 
-    containers = data.get("containers", [])
+    containers = d["containers"]
     if not containers:
         return f"Docker status snapshot has no containers listed{staleness_note}."
 

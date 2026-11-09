@@ -24,6 +24,9 @@ sources a `.env.*` file from `/opt/IOP/` on the server (`.env.device42`,
 | `run_anomaly_digest.sh` | Same wrapper pattern, logs to `/opt/IOP/logs/anomaly_digest/`, shorter 30-min stale-lock window (this job is quick — no data to enumerate, at most one short LLM call). |
 | `file_cleanup.py` | Deletes every File Sharing upload whose uploader-chosen `expires_at` has arrived (`FileService.cleanup_expired()` — DB record first, then the on-disk encrypted blob, same ordering as every other delete path). Only ever acts on a date a human explicitly set at upload time (required, capped at 30 days — see main README's "File Sharing" section); never decides on its own. |
 | `run_file_cleanup.sh` | Same wrapper pattern, logs to `/opt/IOP/logs/file_cleanup/`, same short 30-min stale-lock window as the anomaly digest. |
+| `run_backup.sh` | Nightly `mongodump` (via `docker exec iop-mongodb`, that container's own root credentials — no separate credential file) + `tar.gz` of the File Sharing blob storage, both to `/data/iop-backups/` (14-day retention). Pure bash — needs direct host/Docker access (`sudo docker exec`, `sudo tar` reading the `root:clamscan 750` storage dir) that no container has reason to be given. |
+| `backup_status.py` | Last step of the backup job: writes the `sync_status` doc (`_id: "backup"`) from the sizes/duration `run_backup.sh` already computed, reusing `iop-api`'s own DB connection — see main README's "Nightly automated sync" section. |
+| `docker_status_snapshot.sh` | Runs every 2 min (not part of the nightly table below), host-side only. Snapshots every container's name/status/health **and** real host disk usage (`/`, `/data`, `/opt`) to a plain JSON file, bind-mounted **read-only** into `iop-api`. Read by `app/services/system_health.py`, which both the AI assistant ("docker status"/"server status" questions) and the Dashboard's System Health card (`GET /stats/system-health`) go through — one source of truth, two presentations. Deliberately never mounts `docker.sock` into `iop-api` (socket access there is equivalent to root on the host); this file-snapshot approach is the whole reason no socket is needed. |
 | `scan_helper.py` | Small always-on service (systemd, see `iop-scan-helper.service`) that lets "Check Availability" ping out through the host's *real* `ens192`/`ens224` interfaces instead of the `iop-api` container's own bridge network. Bound only to the internal Docker bridge gateway, never a real NIC; shared-secret header auth. |
 | `iop-scan-helper.service` | systemd unit for `scan_helper.py`. |
 | `zabbix_reconcile.py` | One-time cleanup tool (kept for reference) — used once to fix IP records that `zabbix_sync.py` had incorrectly marked "In Use" before the disabled+stale exclusion existed. Dry-run by default; set `APPLY=1` to actually delete/update. Not part of any recurring job. |
@@ -52,7 +55,13 @@ from data other syncs already wrote.
 30 3 * * *  /opt/IOP/scripts/run_build_embeddings.sh    # see "Offline AI Assistant" below
 40 3 * * *  /opt/IOP/scripts/run_anomaly_digest.sh      # ~1-3 min, Dashboard's Daily Anomaly Digest
 50 3 * * *  /opt/IOP/scripts/run_file_cleanup.sh        # seconds, deletes expired File Sharing uploads
+0 4 * * *   /opt/IOP/scripts/run_backup.sh              # seconds today, mongodump + file-storage archive to /data
 ```
+
+`docker_status_snapshot.sh` is separate from this table — it runs every
+2 minutes (`*/2 * * * * /opt/IOP/scripts/docker_status_snapshot.sh`), not
+nightly, since the Dashboard's System Health card and the AI assistant
+both need near-live container/disk status, not a once-a-night snapshot.
 
 Device42 runs first and sets the baseline status (`In Use`/`Free`) from its
 own inventory. Zabbix, PaloAlto, and vCenter run after, all under the same

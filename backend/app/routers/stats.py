@@ -13,6 +13,7 @@ from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.ip_record_repository import IPRecordRepository
 from app.repositories.subnet_repository import SubnetRepository
 from app.repositories.vrf_repository import VRFRepository
+from app.services import system_health
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])
@@ -43,6 +44,26 @@ async def get_anomaly_digest(
         "summary": doc.get("summary"),
         "counters": doc.get("counters", {}),
         "status": doc.get("status"),
+    }
+
+
+@router.get("/system-health")
+async def get_system_health(
+    current_user: UserInToken = Depends(_VIEWER_PLUS),
+) -> dict:
+    """Host RAM/CPU + Docker container status + real host disk usage, for
+    the Dashboard's System Health card. Same underlying data the AI
+    assistant's "server status"/"docker status" answers are built from
+    (app/services/system_health.py) — read through the same functions
+    rather than a second, slightly different implementation. No DB query
+    here at all: everything comes from /proc (this container) and the
+    host-written snapshot file (scripts/docker_status_snapshot.sh), so
+    this is a cheap, fast read even though it lives under /stats."""
+    resources = system_health.get_server_resources()
+    docker = system_health.get_docker_status()
+    return {
+        "server": resources,
+        "docker": docker,
     }
 
 

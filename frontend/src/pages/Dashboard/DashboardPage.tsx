@@ -34,6 +34,8 @@ import {
   DiffOutlined,
   ClusterOutlined,
   RobotOutlined,
+  DesktopOutlined,
+  HddOutlined,
 } from "@ant-design/icons";
 import {
   PieChart,
@@ -59,6 +61,7 @@ import type {
   SyncSourceStatus,
   StaleInUseSample,
   AnomalyDigest,
+  SystemHealth,
 } from "../../types/stats";
 import BulkCheckAvailabilityModal from "../../components/common/BulkCheckAvailabilityModal";
 import DuplicatesModal from "../../components/common/DuplicatesModal";
@@ -76,7 +79,14 @@ const SYNC_SOURCE_LABEL: Record<string, string> = {
   paloalto: "PaloAlto",
   vcenter: "vCenter",
   ai_embeddings: "AI Assistant Index",
+  backup: "Backup",
 };
+
+// System Health card polls more often than the rest of the dashboard
+// (which loads once per page visit) since it's meant to read as near-live
+// — cheap to do: no DB query behind it at all, just /proc + a host JSON
+// file (see app/services/system_health.py).
+const SYSTEM_HEALTH_POLL_MS = 30_000;
 
 // ── Minimal 3-colour palette ─────────────────────────────────────────────────
 const ACCENT = "#63e2b7";
@@ -183,6 +193,7 @@ const DashboardPage: React.FC = () => {
     null,
   );
   const [duplicatesModalOpen, setDuplicatesModalOpen] = useState(false);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
 
   const fetchStats = useCallback(async () => {
     setLoading(true);
@@ -214,6 +225,21 @@ const DashboardPage: React.FC = () => {
         /* non-critical — the card just shows its own empty state */
       });
   }, [fetchStats]);
+
+  const fetchSystemHealth = useCallback(() => {
+    statsApi
+      .getSystemHealth()
+      .then((res) => setSystemHealth(res.data))
+      .catch(() => {
+        /* non-critical — the card just shows its own empty/stale state */
+      });
+  }, []);
+
+  useEffect(() => {
+    fetchSystemHealth();
+    const id = setInterval(fetchSystemHealth, SYSTEM_HEALTH_POLL_MS);
+    return () => clearInterval(id);
+  }, [fetchSystemHealth]);
 
   if (loading)
     return (
@@ -379,6 +405,7 @@ const DashboardPage: React.FC = () => {
                 "paloalto",
                 "vcenter",
                 "ai_embeddings",
+                "backup",
               ].map((source) => {
                 const s = stats.sync_status[source];
                 const health = syncHealth(s);
@@ -468,6 +495,133 @@ const DashboardPage: React.FC = () => {
                 );
               })}
             </Row>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* System Health — host RAM/CPU/disk + Docker container status, read
+          via GET /stats/system-health (no DB query at all: /proc + a
+          host-written JSON snapshot, see app/services/system_health.py).
+          Polled every 30s so this reads as near-live, unlike the rest of
+          the dashboard which loads once per visit. */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col span={24}>
+          <Card
+            size="small"
+            title={
+              <span>
+                <DesktopOutlined style={{ marginRight: 8 }} />
+                System Health
+                {systemHealth?.docker.is_stale && (
+                  <Tooltip title="Snapshot hasn't updated recently — scripts/docker_status_snapshot.sh (runs every 2 min) may have stopped">
+                    <Badge
+                      color={WARN}
+                      text="Snapshot stale"
+                      style={{ marginLeft: 12, fontSize: 12, fontWeight: 400 }}
+                    />
+                  </Tooltip>
+                )}
+              </span>
+            }
+          >
+            {!systemHealth ? (
+              <Typography.Text type="secondary">Loading…</Typography.Text>
+            ) : (
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12} lg={6}>
+                  <Typography.Text strong style={{ fontSize: 12 }}>
+                    RAM
+                  </Typography.Text>
+                  <Progress
+                    percent={systemHealth.server.ram_used_pct ?? 0}
+                    size="small"
+                    strokeColor={utilColor(systemHealth.server.ram_used_pct ?? 0)}
+                    format={(p) => `${p}%`}
+                  />
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    {systemHealth.server.ram_used_gb.toFixed(1)} /{" "}
+                    {systemHealth.server.ram_total_gb.toFixed(1)} GB
+                  </Typography.Text>
+                </Col>
+
+                <Col xs={24} sm={12} lg={6}>
+                  <Typography.Text strong style={{ fontSize: 12 }}>
+                    CPU load ({systemHealth.server.cpu_count} cores)
+                  </Typography.Text>
+                  <div style={{ fontSize: 13, marginTop: 10 }}>
+                    {systemHealth.server.load_1m}{" "}
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      (1m)
+                    </Typography.Text>
+                    {"  ·  "}
+                    {systemHealth.server.load_5m}{" "}
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      (5m)
+                    </Typography.Text>
+                    {"  ·  "}
+                    {systemHealth.server.load_15m}{" "}
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      (15m)
+                    </Typography.Text>
+                  </div>
+                </Col>
+
+                {systemHealth.docker.disk.map((d) => (
+                  <Col key={d.mount} xs={24} sm={12} lg={6}>
+                    <Typography.Text strong style={{ fontSize: 12 }}>
+                      <HddOutlined style={{ marginRight: 4 }} />
+                      {d.mount}
+                    </Typography.Text>
+                    <Progress
+                      percent={d.used_pct}
+                      size="small"
+                      strokeColor={utilColor(d.used_pct)}
+                      format={(p) => `${p}%`}
+                    />
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      {(d.used_bytes / 1024 ** 3).toFixed(1)} /{" "}
+                      {(d.size_bytes / 1024 ** 3).toFixed(1)} GB
+                    </Typography.Text>
+                  </Col>
+                ))}
+
+                <Col span={24}>
+                  <Typography.Text
+                    strong
+                    style={{ fontSize: 12, display: "block", marginBottom: 8 }}
+                  >
+                    Containers
+                  </Typography.Text>
+                  {systemHealth.docker.containers.length === 0 ? (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {systemHealth.docker.error ?? "No containers reported."}
+                    </Typography.Text>
+                  ) : (
+                    <Space wrap size={[8, 8]}>
+                      {systemHealth.docker.containers.map((c) => {
+                        const color =
+                          c.status !== "running"
+                            ? ERR
+                            : c.health === "unhealthy"
+                              ? ERR
+                              : c.health === "starting"
+                                ? WARN
+                                : ACCENT;
+                        return (
+                          <Tag
+                            key={c.name}
+                            style={{ borderColor: color, color }}
+                          >
+                            {c.name}: {c.status}
+                            {c.health !== "n/a" ? ` (${c.health})` : ""}
+                          </Tag>
+                        );
+                      })}
+                    </Space>
+                  )}
+                </Col>
+              </Row>
+            )}
           </Card>
         </Col>
       </Row>
