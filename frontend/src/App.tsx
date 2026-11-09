@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ConfigProvider, Result, Button, Spin, theme } from "antd";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/common/ProtectedRoute";
+import FloatingAssistantCat from "./components/common/FloatingAssistantCat";
 import AppLayout from "./components/layout/AppLayout";
 import LoginPage from "./pages/Login/LoginPage";
 import HomePage from "./pages/Home/HomePage";
@@ -299,6 +300,7 @@ const App: React.FC = () => (
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        <FloatingAssistantCat />
       </BrowserRouter>
     </AuthProvider>
   </ConfigProvider>
