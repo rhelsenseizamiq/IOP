@@ -221,6 +221,40 @@ def _wants_free_addresses(question: str) -> bool:
     return bool(_FREE_ADDRESS_KEYWORDS.search(question))
 
 
+# Real reported bug: "show me 5 free ip addresses from 172.31.3.0/24" got
+# back 30 addresses (the fixed default below) plus "plus N more" — the
+# requested count was silently ignored. Strips IP/CIDR tokens first so
+# e.g. the "31" in "172.31.3.0/24" is never mistaken for a requested
+# count; bounded to a sane range so a stray unrelated number elsewhere in
+# the question (or someone asking for "all 9000 of them") doesn't produce
+# a giant reply.
+_REQUESTED_COUNT_RE = re.compile(r"\b(\d{1,3})\b")
+_DEFAULT_FREE_ADDRESS_SAMPLE = 30
+_MAX_REQUESTED_FREE_ADDRESS_SAMPLE = 200
+
+
+def _requested_free_count(question: str) -> Optional[int]:
+    stripped = _IP_OR_CIDR_RE.sub(" ", question)
+    match = _REQUESTED_COUNT_RE.search(stripped)
+    if not match:
+        return None
+    n = int(match.group(1))
+    return n if 1 <= n <= _MAX_REQUESTED_FREE_ADDRESS_SAMPLE else None
+
+
+def _format_free_address_sample(answer: str, free_info: "FreeAddressInfo", question: str) -> str:
+    """Appends the actual free-address list (or a sample of it) to an
+    already-built summary sentence — shared by every free-address
+    branch below so the "respect a requested count" fix only needs to
+    live in one place."""
+    if not free_info.free_addresses:
+        return answer
+    limit = _requested_free_count(question) or _DEFAULT_FREE_ADDRESS_SAMPLE
+    sample = free_info.free_addresses[:limit]
+    more = len(free_info.free_addresses) - len(sample)
+    return answer + "\n\n" + ", ".join(sample) + (f", plus {more} more" if more > 0 else "")
+
+
 def _subnet_summary_blurb(subnet_doc: dict) -> str:
     """Same shape as build_embeddings.py's _subnet_blurb (duplicated
     rather than cross-imported — that file is a standalone script outside
@@ -968,10 +1002,8 @@ async def ask(
             answer = free_info.context_text if free_info else (
                 f"Subnet {env_subnets[0]['cidr']} ({env_subnets[0].get('name', '')})."
             )
-            if free_info and free_info.free_addresses:
-                sample = free_info.free_addresses[:30]
-                more = len(free_info.free_addresses) - len(sample)
-                answer += "\n\n" + ", ".join(sample) + (f", plus {more} more" if more > 0 else "")
+            if free_info:
+                answer = _format_free_address_sample(answer, free_info, effective_question)
             sources = [SearchResultItem(
                 text=answer, score=1.0, source_collection="subnets",
                 source_id=str(env_subnets[0]["_id"]), metadata={"cidr": env_subnets[0]["cidr"]},
@@ -1040,10 +1072,8 @@ async def ask(
             answer = free_info.context_text if free_info else (
                 f"Subnet {mentioned['cidr']} ({mentioned.get('name', '')})."
             )
-            if free_info and free_info.free_addresses:
-                sample = free_info.free_addresses[:30]
-                more = len(free_info.free_addresses) - len(sample)
-                answer += "\n\n" + ", ".join(sample) + (f", plus {more} more" if more > 0 else "")
+            if free_info:
+                answer = _format_free_address_sample(answer, free_info, effective_question)
             sources = [SearchResultItem(
                 text=answer, score=1.0, source_collection="subnets",
                 source_id=str(mentioned["_id"]), metadata={"cidr": mentioned["cidr"]},
