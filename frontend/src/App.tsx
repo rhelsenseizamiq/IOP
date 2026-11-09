@@ -6,25 +6,30 @@ import ProtectedRoute from "./components/common/ProtectedRoute";
 import AppLayout from "./components/layout/AppLayout";
 import LoginPage from "./pages/Login/LoginPage";
 import HomePage from "./pages/Home/HomePage";
-import DashboardPage from "./pages/Dashboard/DashboardPage";
-import IPRecordsPage from "./pages/IPRecords/IPRecordsPage";
-import SubnetsPage from "./pages/Subnets/SubnetsPage";
-import NetworkScanPage from "./pages/NetworkScan/NetworkScanPage";
-import PaloAltoCheckPage from "./pages/PaloAltoCheck/PaloAltoCheckPage";
-import UsersPage from "./pages/Users/UsersPage";
-import AuditLogPage from "./pages/AuditLog/AuditLogPage";
-// VRFsPage / AggregatesPage / AssetsPage — disabled, currently unused.
-// Re-enable by restoring these imports along with their <Route> elements.
-import IntegrationsPage from "./pages/Integrations/IntegrationsPage";
-import VaultPage from "./pages/Vault/VaultPage";
 import VaultLayout from "./components/layout/VaultLayout";
-import RegistrationPage from "./pages/Registration/RegistrationPage";
-import PendingApprovalsPage from "./pages/Users/PendingApprovalsPage";
-import UnusedIPsPage from "./pages/UnusedIPs/UnusedIPsPage";
-import AssistantPage from "./pages/Assistant/AssistantPage";
-import FilesPage from "./pages/Files/FilesPage";
 import FilesLayout from "./components/layout/FilesLayout";
 
+// Every other page is route-based code-split: each becomes its own JS
+// chunk, fetched only when that route is actually visited, instead of
+// all of them (including heavy deps like recharts, pulled in by
+// DashboardPage) landing in one ~2.2MB main bundle every visitor
+// downloads up front regardless of which pages they ever open.
+const DashboardPage = lazy(() => import("./pages/Dashboard/DashboardPage"));
+const IPRecordsPage = lazy(() => import("./pages/IPRecords/IPRecordsPage"));
+const SubnetsPage = lazy(() => import("./pages/Subnets/SubnetsPage"));
+const NetworkScanPage = lazy(() => import("./pages/NetworkScan/NetworkScanPage"));
+const PaloAltoCheckPage = lazy(() => import("./pages/PaloAltoCheck/PaloAltoCheckPage"));
+const UsersPage = lazy(() => import("./pages/Users/UsersPage"));
+const AuditLogPage = lazy(() => import("./pages/AuditLog/AuditLogPage"));
+// VRFsPage / AggregatesPage / AssetsPage — disabled, currently unused.
+// Re-enable by restoring these imports along with their <Route> elements.
+const IntegrationsPage = lazy(() => import("./pages/Integrations/IntegrationsPage"));
+const VaultPage = lazy(() => import("./pages/Vault/VaultPage"));
+const RegistrationPage = lazy(() => import("./pages/Registration/RegistrationPage"));
+const PendingApprovalsPage = lazy(() => import("./pages/Users/PendingApprovalsPage"));
+const UnusedIPsPage = lazy(() => import("./pages/UnusedIPs/UnusedIPsPage"));
+const AssistantPage = lazy(() => import("./pages/Assistant/AssistantPage"));
+const FilesPage = lazy(() => import("./pages/Files/FilesPage"));
 const SharePage = lazy(() => import("./pages/Share/SharePage"));
 const UploadRequestPage = lazy(() => import("./pages/UploadRequest/UploadRequestPage"));
 const PasswordGeneratorPage = lazy(
