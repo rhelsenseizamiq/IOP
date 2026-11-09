@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.core.database import get_database
 from app.dependencies.auth import require_role
+from app.models.ip_record import Environment
 from app.models.user import UserInToken
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.embedding_repository import EmbeddingRepository
@@ -160,6 +161,44 @@ async def _find_mentioned_subnet(question: str, db) -> Optional[dict]:
         if best:
             return best
     return None
+
+
+# Real gap this closes: "show me free ip from test subnet" named no
+# actual IP/CIDR, so _find_mentioned_subnet above returned None and the
+# question fell straight through to semantic search — which has nothing
+# reliable to match a bare phrase like "test subnet" against (subnet
+# blurbs are templated around CIDR/name/description text, not a clean
+# environment label), so it came back empty and the LLM correctly said
+# it had nothing to answer from. Checked longest phrase first so
+# "disaster recovery" doesn't get masked by a shorter alias matching
+# first; word-boundaried so e.g. "dr" doesn't match inside "address".
+_ENVIRONMENT_KEYWORDS: list[tuple[re.Pattern, Environment]] = [
+    (re.compile(r"\bdisaster recovery\b", re.IGNORECASE), Environment.DR),
+    (re.compile(r"\buser acceptance\b", re.IGNORECASE), Environment.UAT),
+    (re.compile(r"\bproduction\b|\bprod\b", re.IGNORECASE), Environment.PRODUCTION),
+    (re.compile(r"\bstaging\b|\bstage\b", re.IGNORECASE), Environment.STAGING),
+    (re.compile(r"\buat\b", re.IGNORECASE), Environment.UAT),
+    (re.compile(r"\bqa\b", re.IGNORECASE), Environment.QA),
+    (re.compile(r"\btest(?:ing)?\b", re.IGNORECASE), Environment.TEST),
+    (re.compile(r"\bdevelopment\b|\bdev\b", re.IGNORECASE), Environment.DEVELOPMENT),
+    (re.compile(r"\bdr\b", re.IGNORECASE), Environment.DR),
+    (re.compile(r"\blab\b", re.IGNORECASE), Environment.LAB),
+]
+
+
+def _find_mentioned_environment(question: str) -> Optional[Environment]:
+    for pattern, env in _ENVIRONMENT_KEYWORDS:
+        if pattern.search(question):
+            return env
+    return None
+
+
+async def _subnets_in_environment(environment: Environment, db) -> list[dict]:
+    return await db["subnets"].find(
+        {"environment": environment.value},
+        {"cidr": 1, "name": 1, "environment": 1, "vlan_id": 1, "gateway": 1,
+         "alert_threshold": 1, "description": 1},
+    ).to_list(length=None)
 
 
 # Minimum cosine similarity (embeddings are L2-normalized — see
@@ -828,6 +867,12 @@ async def ask(
     # before) so the new fleet-analytics branch can also check "was a
     # specific subnet/IP named" without a second, redundant query.
     mentioned = await _find_mentioned_subnet(effective_question, db)
+    # Only relevant when no specific IP/subnet was already named — e.g.
+    # "free ip from test subnet" (no CIDR, so `mentioned` is None above).
+    mentioned_env = (
+        _find_mentioned_environment(effective_question)
+        if not bare_ip and not mentioned else None
+    )
     # Fleet-wide analytics only makes sense when the question isn't
     # already about one specific IP/subnet — those keep using the
     # existing per-subnet/per-IP paths below.
@@ -907,6 +952,61 @@ async def ask(
             ]
         else:
             answer = f"No IP record with a hostname matching \"{fragment}\" was found in this IPAM."
+            sources = []
+
+    elif mentioned_env and _wants_free_addresses(effective_question):
+        # "free ip from test subnet" etc — see _find_mentioned_environment
+        # above for why this exists. Deterministic, computed from real
+        # subnet/IP-record data, same no-LLM-guessing principle as the
+        # single-named-subnet free-address branch below.
+        env_subnets = await _subnets_in_environment(mentioned_env, db)
+        if not env_subnets:
+            answer = f"No subnets are tagged Environment={mentioned_env.value} in this IPAM."
+            sources = []
+        elif len(env_subnets) == 1:
+            free_info = await _free_address_info(env_subnets[0], ip_repo)
+            answer = free_info.context_text if free_info else (
+                f"Subnet {env_subnets[0]['cidr']} ({env_subnets[0].get('name', '')})."
+            )
+            if free_info and free_info.free_addresses:
+                sample = free_info.free_addresses[:30]
+                more = len(free_info.free_addresses) - len(sample)
+                answer += "\n\n" + ", ".join(sample) + (f", plus {more} more" if more > 0 else "")
+            sources = [SearchResultItem(
+                text=answer, score=1.0, source_collection="subnets",
+                source_id=str(env_subnets[0]["_id"]), metadata={"cidr": env_subnets[0]["cidr"]},
+            )]
+        elif len(env_subnets) <= 5:
+            # Small enough to compute free counts for every match (each is
+            # one cheap occupied-addresses query) without it turning into
+            # a slow, sprawling reply.
+            lines = []
+            sources = []
+            for s in env_subnets:
+                info = await _free_address_info(s, ip_repo)
+                free_n = (info.total_usable - info.occupied) if info else None
+                lines.append(
+                    f"{s['cidr']} ({s.get('name', '')}): "
+                    f"{free_n if free_n is not None else '?'} free"
+                )
+                sources.append(SearchResultItem(
+                    text=lines[-1], score=1.0, source_collection="subnets",
+                    source_id=str(s["_id"]), metadata={"cidr": s["cidr"]},
+                ))
+            answer = (
+                f"{len(env_subnets)} subnets tagged Environment={mentioned_env.value}:\n"
+                + "\n".join(lines)
+                + "\n\nAsk about one specific subnet (e.g. its CIDR) to see its actual free addresses."
+            )
+        else:
+            # Too many to enumerate cheaply (this box is CPU-only and a
+            # query per subnet adds up) — a real count instead of silently
+            # refusing or guessing.
+            answer = (
+                f"{len(env_subnets)} subnets are tagged Environment={mentioned_env.value} "
+                f"— too many to list free addresses for all of them here. Name a specific "
+                f"subnet (its CIDR) to see its free addresses, or check the Subnets page."
+            )
             sources = []
 
     elif fleet_formatters:
