@@ -70,6 +70,18 @@ const App: React.FC = () => (
         colorBgElevated: "#2a2a38",
         borderRadius: 8,
       },
+      components: {
+        // antd's dark Menu defaults to its own navy-blue tokens
+        // (darkItemBg #001529, darkSubMenuItemBg #000c17) regardless of
+        // the Sider's own background — this made the expanded IPAM
+        // submenu visibly bluer than the rest of the sidebar. Match the
+        // Sider's actual background (#16161f, set in AppLayout.tsx) so
+        // the submenu blends in instead of standing out.
+        Menu: {
+          darkItemBg: "#16161f",
+          darkSubMenuItemBg: "#16161f",
+        },
+      },
     }}
   >
     <AuthProvider>
